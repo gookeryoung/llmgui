@@ -35,6 +35,8 @@
   微调后的 GGUF 已在 18081 端口实测推理成功。
 - Web GUI：模型库、流式聊天、训练 YAML 生成、设置；零构建、离线、无外部资源。
 - 文档门禁：`scripts/check_adr_landing.py`、`scripts/gitkeep_check.py`、Makefile、CI。
+- P3 发布准备：`make release`、`scripts/install.ps1`、GitHub Release 工作流、`llmgui doctor`
+  环境诊断（home/cache/models/Python/WSL/upstream）。
 
 ### Known limitations
 

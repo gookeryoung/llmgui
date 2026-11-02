@@ -7,6 +7,9 @@ PYTEST ?= $(PYTHON) -m pytest
 build:
 	$(CARGO) build --workspace
 
+release:
+	$(CARGO) build --release -p llmgui-cli
+
 test:
 	$(CARGO) test --workspace
 	$(PYTEST) python/tests

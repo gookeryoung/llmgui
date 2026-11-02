@@ -110,6 +110,8 @@ enum Commands {
         #[arg(long, default_value = "python")]
         python: String,
     },
+    /// Print environment/installation diagnostics.
+    Doctor,
 }
 
 #[tokio::main]
@@ -179,7 +181,48 @@ async fn dispatch() -> Result<()> {
             max_tokens,
         } => bench(model, backend, concurrency, iterations, max_tokens).await,
         Commands::Train { config, python } => train(&config, &python).await,
+        Commands::Doctor => doctor(),
     }
+}
+
+fn doctor() -> Result<()> {
+    println!("llmgui {}", llmgui_core::VERSION);
+    println!("home:    {}", paths::llmgui_home().display());
+    println!("cache:   {}", paths::cache_dir().display());
+    println!("models:  {}", paths::models_dir().display());
+    let models = std::fs::read_dir(paths::models_dir())
+        .map(|rd| rd.filter_map(|e| e.ok()).count())
+        .unwrap_or(0);
+    println!("model dirs: {models}");
+    let python = std::process::Command::new("python")
+        .args(["-c", "import llmgui_train; print(llmgui_train.__version__)"])
+        .output();
+    match python {
+        Ok(out) if out.status.success() => println!(
+            "python llmgui_train: {}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        ),
+        _ => println!("python llmgui_train: not installed"),
+    }
+    let wsl = std::process::Command::new("wsl")
+        .args(["-l", "-q"])
+        .output();
+    match wsl {
+        Ok(out) if out.status.success() => println!(
+            "wsl distros: {}",
+            String::from_utf8_lossy(&out.stdout)
+                .replace('\u{0}', "")
+                .trim()
+        ),
+        _ => println!("wsl: unavailable"),
+    }
+    let upstream = std::env::var("LLMGUI_UPSTREAM_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:18080".to_string());
+    match ureq::get(&format!("{}/health", upstream.trim_end_matches('/'))).call() {
+        Ok(resp) if resp.status() < 400 => println!("upstream: healthy ({upstream})"),
+        _ => println!("upstream: offline ({upstream})"),
+    }
+    Ok(())
 }
 
 async fn pull(

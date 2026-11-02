@@ -146,10 +146,18 @@ WSL 用户可直接运行 Linux 版 `llama-quantize`（Windows 路径通过 `/mn
 
 ```powershell
 make build          # cargo build --workspace
+make release        # 当前平台 release 二进制
 make test           # Rust workspace + Python 单测
 make check-fast     # fmt/clippy/ruff/compileall/adr-check
 make check-docs     # 文档门禁（含 ADR 落地校验）
 make flow           # check-fast + test
+```
+
+安装与诊断：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install.ps1
+target\debug\llmgui.exe doctor
 ```
 
 `make cov` 需要本机安装 `cargo-llvm-cov` 与 `pytest-cov`。
