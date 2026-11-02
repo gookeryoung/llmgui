@@ -173,6 +173,13 @@ cargo run -p llmgui-desktop -- -- serve --backend upstream `
 cargo run -p llmgui-desktop -- --no-spawn
 ```
 
+WSLg / 无 GPU 直通的 Linux 上给 WebKit 加软件渲染（否则可能出现 EGL/DMA-BUF 报错或空白窗口）：
+
+```bash
+make desktop DESKTOP_ENV="GDK_BACKEND=x11 WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+  WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1"
+```
+
 `--selftest` 是端到端体验验收：壳在真实 WebView 里驱动真实 UI（切页 → 输入 → 发送 →
 等 SSE 结束 → 回读 DOM 里的模型名 / TTFT / tok/s），把结果 POST 回来并按退出码判定，
 适合当回归冲烟。7B 实测（merged-7b-q4km，WSL CPU llama-server）：

@@ -3,6 +3,9 @@ CARGO ?= cargo
 GIT ?= git
 PYTEST ?= $(PYTHON) -m pytest
 
+# Extra environment for `make desktop` (e.g. WSLg software rendering):
+#   make desktop DESKTOP_ENV="GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1"
+DESKTOP_ENV ?=
 # `make push` pushes the current branch to every configured remote.
 REMOTES ?= $(shell $(GIT) remote)
 BRANCH ?= $(shell $(GIT) rev-parse --abbrev-ref HEAD)
@@ -55,10 +58,10 @@ push:
 	echo "pushed $(BRANCH) to: $(REMOTES)"
 
 desktop:
-	$(CARGO) run -p llmgui-desktop
+	$(DESKTOP_ENV) $(CARGO) run -p llmgui-desktop
 
 desktop-accept:
-	$(CARGO) run -p llmgui-desktop -- --selftest $(DESKTOP_ARGS)
+	$(DESKTOP_ENV) $(CARGO) run -p llmgui-desktop -- --selftest $(DESKTOP_ARGS)
 
 bench-runtime:
 	$(CARGO) run -p llmgui-cli -- bench --iterations 4 --concurrency 1 --max-tokens 64
