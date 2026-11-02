@@ -1,6 +1,6 @@
 # ADR 0001：本地大模型运行与微调框架（Rust + Python）
 
-- 状态：Proposed（待方案评审；评审通过后改 Accepted 才进入实现）
+- 状态：Accepted（需求方 2026-11-02 指示“按此推进到P3”，视为方案评审通过）
 - 日期：2026-11-02
 - 关联需求卡片：[0001-local-llm-runtime-finetune](../requirements/0001-local-llm-runtime-finetune.md)
 - 关联调研：[runtime](../research/runtime.md) · [finetune](../research/finetune.md) · [download](../research/download.md)
@@ -582,27 +582,31 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 
 | 期 | 状态 | 代码落点 | 测试 | 提交 |
 |---|---|---|---|---|
-| P0 下载→运行 | 未开始 | — | — | — |
-| P1 快且省 | 未开始 | — | — | — |
-| P2a 训练闭环 | 未开始 | — | — | — |
-| P2b GUI | 未开始 | — | — | — |
-| P3 硬化与发布 | 未开始 | — | — | — |
+| P0 下载→运行 | 部分落地 | `crates/llmgui-download`、`llmgui-server`、`llmgui-cli`、`llmgui-models`、`gui/` | `cargo test --workspace`（下载 34 + server 4 + core 等）；mock 服务与 GUI 冒烟通过；真实 GGUF 下载 + `estimate` 通过 | feat/llmgui-p0-p3 |
+| P1 快且省 | 进行中 | `crates/llmgui-scheduler`（槽位/取消）、`backend-llamacpp`（FFI 编译通过） | 取消/并发基础测试；prefix cache、KV 量化门槛、4 并发压测未完成 | feat/llmgui-p0-p3 |
+| P2a 训练闭环 | 部分落地 | `python/llmgui_train`（config/data/estimate/export/worker/trainer）、CLI `train` 桥 | Python 201 tests / 92.91% 覆盖率；真实 QLoRA 未执行（环境无 torch） | feat/llmgui-p0-p3 |
+| P2b GUI | 已落地 | `gui/index.html`、`styles.css`、`app.js` | 静态自检 + 无浏览器 DOM/SSE 集成测试；`llmgui serve` 托管 200 | feat/llmgui-p0-p3 |
+| P3 硬化与发布 | 进行中 | Makefile、CI、ADR 门禁、CHANGELOG、`docs/adr/TEMPLATE.md` | `make check-docs`/clippy 通过；安装包/签名/性能长稳未完成 | feat/llmgui-p0-p3 |
 
-> 责任人：设计阶段由需求方指定 1 名技术负责人；P0 启动前必须把每期 owner 落到人（当前不阻塞方案评审）。
+> 真实 llama.cpp 运行阻塞：Windows 11 build 26300 + Intel Arrow Lake 上，`llama_backend_init()` 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 和预编译 llama-cli 上均触发 `STATUS_ACCESS_VIOLATION`；FFI 编译与模型下载/解析正常。需要 WSL/Linux 或换工具链验证，尚未达成 P0 的真实推理验收。
 
 ## 19. 交接
 
-- 当前阶段：方案设计（Proposed）。未写任何实现代码。
-- 已完成：需求卡片 0001；runtime/finetune/download 三份调研；ADR 模板与索引；本 ADR。
-- 下一步：需求方确认卡片 → ADR 评审 → P0-1a/1b（裁剪 cndb 遗留、建 Makefile/门禁/CI）→ P0-2 下载器。
+- 当前阶段：P3 进行中（可运行骨架 + mock 闭环；真实 llama.cpp 运行受环境阻塞）。
+- 已完成：需求卡片 0001；三份调研；ADR 模板/索引；Rust workspace（10 crate）；ModelScope/HF 下载器；GGUF 解析/显存预估；OpenAI 兼容服务/CLI/bench；Python 训练 worker；Web GUI；Makefile/CI/文档门禁。
+- 已验证：`cargo test --workspace` 全绿；Python 201 tests / 92.91%；`cargo clippy -D warnings` 通过；`make check-docs` 通过；ModelScope 下载 Qwen2.5-0.5B-GGUF 并 SHA256 校验；`llmgui serve --backend mock` + SSE + GUI 冒烟通过。
+- 下一步（按优先级）：
+  1. 在 WSL/Linux 或 VS2022 新工具链上复现并修复 `llama_backend_init` 崩溃，完成真实 GGUF inference；
+  2. 实现 P1 的 prefix cache（seq state 快照/恢复）与逐步 batch 拼装，补 4 并发性能门槛；
+  3. 安装 `torch/transformers/peft/trl/bitsandbytes` 跑通 7B QLoRA 与 adapter→GGUF 全链路；
+  4. 补安装包/签名、Tauri 壳、崩溃恢复与性能长稳，完成 P3 发布。
 - 已知坑：
-  1. 仓库现有 `docs/AI_DRIVEN_DEV_FLOW.md`、`BUNDLE_BUDGET.md`、`REFACTOR_BACKLOG.md` 是 cndb 遗留，引用的 ADR 0004/脚本/CI 均不存在；P0-1a/1b 必须先裁剪并建门禁；
-  2. `llama-cpp-2` 走 libllama，没有 llama-server 的 slot/prefix cache 实现；P1-1/P1-2 必须按 Rust 自实现估算工作量（已给 8 周）；
-  3. 本机 F: 仅约 24GB，默认缓存必须落用户目录；
-  4. RTX 5090 D 为 sm_120，CUDA 12.8+ 与 llama.cpp 内核覆盖需在 P0 首日验证；
-  5. Windows 10 仅 best-effort，bnb QLoRA 需 Win11+；Triton/Liger 为可选路径，不得阻塞发布；
-  6. ModelScope 列表 API 可能静默截断，下载器必须自检条目数；
-  7. 本机无 4090，4090 仅作外部参照；若需 4090 门槛，P1 前租用/采购并接入 CI。
+  1. 仓库现有 `docs/AI_DRIVEN_DEV_FLOW.md`、`BUNDLE_BUDGET.md`、`REFACTOR_BACKLOG.md` 是 cndb 遗留，部分链接不存在；
+  2. Windows 上 llama.cpp 初始化崩溃（见 §18）；mock 后端不受影响；
+  3. `llama-cpp-2` 固定为 `=0.1.159`；`llama` feature 需要 MSVC + libclang（当前用 pip `libclang` + VS2022 vcvars）；
+  4. Python 真实训练依赖未安装，worker 会返回结构化 `missing_dependency`；
+  5. Tauri 壳未构建，GUI 以本地 Web 形式交付；单机训练/推理 GPU lease 仅完成设计。
+
 
 ## 20. 参考
 

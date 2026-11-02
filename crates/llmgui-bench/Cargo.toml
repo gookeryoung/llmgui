@@ -1,0 +1,13 @@
+[package]
+name = "llmgui-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+llmgui-core = { path = "../llmgui-core" }
+llmgui-backend-api = { path = "../llmgui-backend-api" }
+llmgui-scheduler = { path = "../llmgui-scheduler" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

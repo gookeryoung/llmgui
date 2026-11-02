@@ -1,0 +1,10 @@
+[package]
+name = "llmgui-backend-mock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+llmgui-core = { path = "../llmgui-core" }
+llmgui-backend-api = { path = "../llmgui-backend-api" }
+tokio.workspace = true

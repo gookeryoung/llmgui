@@ -1,0 +1,30 @@
+[project]
+name = "llmgui"
+version = "0.1.0"
+description = "Local LLM runtime and fine-tuning framework"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]
+pythonpath = ["python/llmgui_train/src", "python"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["python/llmgui_train/src", "python/tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+source = ["llmgui_train"]
+branch = true
+omit = ["*/worker.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true

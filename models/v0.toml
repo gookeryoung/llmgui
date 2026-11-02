@@ -1,0 +1,27 @@
+schema = 1
+
+[[models]]
+id = "qwen2.5-7b-instruct-q4km"
+repo = "Qwen/Qwen2.5-7B-Instruct-GGUF"
+file = "qwen2.5-7b-instruct-q4_k_m.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 4683073632
+role = "default"
+
+[[models]]
+id = "qwen2.5-0.5b-instruct-q4km"
+repo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+file = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 398000000
+role = "smoke"
+
+[[models]]
+id = "qwen2.5-7b-instruct"
+repo = "Qwen/Qwen2.5-7B-Instruct"
+quant = "BF16"
+license = "Apache-2.0"
+size_bytes = 15200000000
+role = "train-base"

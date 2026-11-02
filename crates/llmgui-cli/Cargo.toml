@@ -1,0 +1,31 @@
+[package]
+name = "llmgui-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+llama = ["llmgui-backend-llamacpp/llama"]
+
+[[bin]]
+name = "llmgui"
+path = "src/main.rs"
+
+[dependencies]
+llmgui-core = { path = "../llmgui-core" }
+llmgui-models = { path = "../llmgui-models" }
+llmgui-download = { path = "../llmgui-download" }
+llmgui-backend-api = { path = "../llmgui-backend-api" }
+llmgui-backend-mock = { path = "../llmgui-backend-mock" }
+llmgui-backend-llamacpp = { path = "../llmgui-backend-llamacpp" }
+llmgui-scheduler = { path = "../llmgui-scheduler" }
+llmgui-server = { path = "../llmgui-server" }
+llmgui-bench = { path = "../llmgui-bench" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

@@ -10,7 +10,7 @@
 
 | 编号 | 标题 | Status | 落地阶段 | 代码 | 测试 | CHANGELOG |
 |---|---|---|---|---|---|---|
-| [0001](0001-local-llm-runtime-finetune.md) | 本地大模型运行与微调框架（Rust + Python） | Proposed | 设计完成；P0 未开始 | — | — | 待实现后回填 |
+| [0001](0001-local-llm-runtime-finetune.md) | 本地大模型运行与微调框架（Rust + Python） | Accepted | P0 部分 / P1 进行中 / P2a 部分 / P2b 已落地 / P3 进行中 | `crates/`、`python/`、`gui/` | `cargo test --workspace`、`pytest python/tests` | [CHANGELOG](../../CHANGELOG.md) |
 
 ## 关联文档
 

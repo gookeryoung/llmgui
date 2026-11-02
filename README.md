@@ -1,0 +1,86 @@
+# llmgui
+
+本地大模型「运行 + 微调」框架：Rust 运行时 + Python 训练层。方案与阶段边界见
+[ADR 0001](docs/adr/0001-local-llm-runtime-finetune.md)，当前实现状态见
+[ADR §18 落地状态](docs/adr/0001-local-llm-runtime-finetune.md) 与 [CHANGELOG](CHANGELOG.md)。
+
+## 已实现
+
+- **下载**：ModelScope 主源、hf-mirror / Gitee AI 兼容源；分片 Range、断点续传、
+  流式 SHA256、CAS 缓存、`models/<id>/manifest.json`。
+- **运行时**：Rust 单进程；OpenAI 兼容 `/v1/chat/completions`（SSE）、`/v1/completions`、
+  `/v1/models`、`/healthz`、`/metrics`；本地 Web GUI；mock 后端开箱即用。
+- **模型**：GGUF metadata 解析、显存预估；`llama.cpp` in-process 后端（`--features llama`，
+  当前 Windows 环境存在运行期阻塞，见下）。
+- **微调**：Python worker（stdio JSON-RPC）、SFT/QLoRA trainer（lazy 依赖）、数据格式/
+  assistant mask/packing、PEFT adapter 与 GGUF 导出封装。
+- **工程**：Rust workspace 10 crate、Python 201 tests、Makefile、CI、ADR 门禁。
+
+## 快速开始（mock，无需模型）
+
+```powershell
+cargo build --workspace
+cargo run -p llmgui-cli -- serve --backend mock --port 11435
+# 浏览器打开 http://127.0.0.1:11435/
+```
+
+```powershell
+curl http://127.0.0.1:11435/v1/chat/completions `
+  -H "Content-Type: application/json" `
+  -d '{"model":"mock","messages":[{"role":"user","content":"你好"}]}'
+```
+
+## 下载真实模型
+
+默认缓存位于 `%LOCALAPPDATA%\llmgui`；可用 `LLMGUI_HOME` 覆盖：
+
+```powershell
+$env:LLMGUI_HOME = "C:\Users\me\llmgui-home"
+cargo run -p llmgui-cli -- pull Qwen/Qwen2.5-0.5B-Instruct-GGUF `
+  --file qwen2.5-0.5b-instruct-q4_k_m.gguf
+cargo run -p llmgui-cli -- list
+cargo run -p llmgui-cli -- estimate <下载后的 gguf> --ctx 4096
+```
+
+## 真实推理
+
+```powershell
+# 需要 MSVC + libclang；先设置 LIBCLANG_PATH，并确保 vcvars64 环境
+cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf>
+```
+
+> **当前已知阻塞**：Windows 11 build 26300 + Intel Arrow Lake 上 `llama_backend_init()`
+> 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 与预编译 llama-cli 上均触发
+> `STATUS_ACCESS_VIOLATION`；GGUF 下载、解析、显存预估正常。mock 后端与全部服务/GUI/CLI
+> 功能不受影响。修复后在 ADR 交接中回填。
+
+## 微调
+
+```powershell
+pip install -e python/llmgui_train          # 无 ML 依赖
+pip install -e "python/llmgui_train[cuda]"  # torch/transformers/peft/trl/bnb
+cargo run -p llmgui-cli -- train --config examples/train.json
+```
+
+没有 torch 时 worker 会返回结构化 `missing_dependency`，不会静默失败。
+
+## 目录
+
+- `crates/`：Rust workspace（core/models/download/backend/scheduler/server/cli/bench）
+- `python/llmgui_train/`：Python 训练 worker（SFT/QLoRA、导出、评测）
+- `gui/`：零构建本地 Web GUI（由 `llmgui serve` 托管）
+- `docs/`：ADR、需求卡片、调研
+- `models/v0.toml`：默认模型清单
+- `scripts/`：ADR/文档门禁与本地构建辅助脚本
+
+## 测试与门禁
+
+```powershell
+make build          # cargo build --workspace
+make test           # Rust workspace + Python 单测
+make check-fast     # fmt/clippy/ruff/compileall/adr-check
+make check-docs     # 文档门禁（含 ADR 落地校验）
+make flow           # check-fast + test
+```
+
+`make cov` 需要本机安装 `cargo-llvm-cov` 与 `pytest-cov`。

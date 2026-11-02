@@ -1,0 +1,36 @@
+# Changelog
+
+所有重要变更记录在此。格式参考 Keep a Changelog；版本遵循 SemVer。
+
+## [0.1.0] — 2026-11-02
+
+首个可运行版本，对应 ADR 0001 的 P0/P1/P2a/P2b 代码骨架与部分 P3 硬化项。
+
+### Added
+
+- Rust workspace：`llmgui-core`、`llmgui-models`、`llmgui-download`、`llmgui-backend-api`、
+  `llmgui-backend-mock`、`llmgui-backend-llamacpp`、`llmgui-scheduler`、`llmgui-server`、
+  `llmgui-cli`、`llmgui-bench`。
+- 国内源下载：ModelScope 列表/下载、hf-mirror/Gitee AI HF 兼容源、分片 Range、断点续传、
+  流式 SHA256、CAS、硬链接快照、`pull/list` CLI；本地 HTTP fixture 34 个测试。
+- GGUF metadata 解析与显存预估（权重 + KV + compute + runtime），`llmgui estimate`。
+- llama.cpp in-process 后端（`--features llama`）：模型加载、tokenize、prefill/decode、
+  greedy/temperature/top-p 采样、UTF-8 跨 token 拼接、取消与统计；默认 CPU 路径。
+- OpenAI 兼容服务：`/v1/chat/completions`（SSE/非流式）、`/v1/completions`、`/v1/models`、
+  `/healthz`、`/metrics`、Bearer token、本地 Web GUI 静态托管。
+- CLI：`pull/list/serve/run/estimate/bench/train`。
+- Python 训练包：配置、数据（Alpaca/ShareGPT/OpenAI messages）、assistant mask、packing、
+  显存估算、PEFT adapter/GGUF 导出封装、stdio NDJSON JSON-RPC worker、QLoRA lazy 训练器；
+  201 个测试、92.91% 覆盖率。
+- Web GUI：模型库、流式聊天、训练 YAML 生成、设置；零构建、离线、无外部资源。
+- 文档门禁：`scripts/check_adr_landing.py`、`scripts/gitkeep_check.py`、Makefile、CI。
+
+### Known limitations
+
+- Rust 调度器目前提供并发槽位与取消，**尚未实现 llama.cpp KV prefix cache 与逐步 batch 交织**；
+  `llmglui-backend-llamacpp` 每次请求新建 context。
+- llama.cpp 后端在部分旧版 MSVC 工具链下运行期初始化崩溃（`STATUS_ACCESS_VIOLATION`），
+  需要 VS2022 工具链；本轮在 MinGW/GNU 路线上继续验证。默认 mock 后端不受影响。
+- Python 真实 QLoRA 训练路径需要安装 `torch/transformers/peft/trl`，本轮环境未安装，
+  仅覆盖无依赖错误路径、数据/导出/协议。
+- Tauri 桌面壳未构建，GUI 以本地 Web 形式交付；多卡、DPO、speculative、国产卡为 post-v1.0。

@@ -1,12 +1,34 @@
+### Rust
+/target/
+/target-gnu/
+**/*.rs.bk
+
+### Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+### llmgui runtime state
+.llmgui/
+*.part
+*.state.json
+benchmarks/reports/
+
+### Node / GUI
+node_modules/
+gui/dist/
+
 ### Windows
-# Windows thumbnail cache files
 Thumbs.db
-
-# Folder config file
 [Dd]esktop.ini
-
-# Recycle Bin used on file shares
 $RECYCLE.BIN/
-
-# Windows shortcuts
 *.lnk
+
+server.*.log

@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="description" content="llmgui 本地大模型控制台：模型、聊天、训练配置与设置。零构建、离线可用。">
+  <title>llmgui · 本地大模型控制台</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主内容</a>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">lg</span>
+        <span class="brand__text">
+          <strong>llmgui</strong>
+          <small>本地 LLM 控制台</small>
+        </span>
+      </div>
+
+      <nav class="nav" id="nav" aria-label="主导航">
+        <button type="button" class="nav__item is-active" data-view="models" aria-current="page">
+          <span class="nav__index" aria-hidden="true">01</span>模型 Models
+        </button>
+        <button type="button" class="nav__item" data-view="chat">
+          <span class="nav__index" aria-hidden="true">02</span>聊天 Chat
+        </button>
+        <button type="button" class="nav__item" data-view="train">
+          <span class="nav__index" aria-hidden="true">03</span>训练 Train
+        </button>
+        <button type="button" class="nav__item" data-view="settings">
+          <span class="nav__index" aria-hidden="true">04</span>设置 Settings
+        </button>
+      </nav>
+
+      <div class="sidebar__foot">
+        <p class="hint">零构建 · 无外部依赖<br>由 <code>llmgui serve</code> 托管</p>
+      </div>
+    </aside>
+
+    <header class="topbar">
+      <div class="status" id="status" role="status" aria-live="polite">
+        <span class="status__dot" id="status-dot" aria-hidden="true"></span>
+        <span class="status__label" id="status-label">连接中…</span>
+        <span class="status__meta" id="status-meta"></span>
+      </div>
+      <div class="topbar__actions">
+        <button type="button" class="btn btn--ghost btn--sm" id="refresh-health">刷新状态</button>
+        <label class="theme-toggle" for="theme-toggle">
+          <input type="checkbox" id="theme-toggle">
+          <span>浅色</span>
+        </label>
+      </div>
+    </header>
+
+    <main class="main" id="main" tabindex="-1">
+      <!-- Models -->
+      <section class="view" id="view-models" aria-labelledby="models-title">
+        <header class="view__head">
+          <h1 id="models-title">模型 Models</h1>
+          <p class="lead">内置默认清单来自 <code>models/v0.toml</code>，离线展示；以下命令请在项目根目录执行。</p>
+        </header>
+
+        <section class="panel" aria-labelledby="server-models-title">
+          <div class="panel__head">
+            <h2 id="server-models-title">服务已加载模型</h2>
+            <button type="button" class="btn btn--ghost btn--sm" id="models-refresh">刷新</button>
+          </div>
+          <p class="hint" id="models-server-status">正在读取 <code>GET /v1/models</code>…</p>
+          <ul class="chip-list" id="models-server-list"></ul>
+        </section>
+
+        <h2 class="section-title">内置默认模型</h2>
+        <div class="model-grid" id="model-grid"></div>
+
+        <p class="hint">拉取完成后，用 <code>llmgui serve --model &lt;model.gguf&gt;</code> 启动推理服务。</p>
+      </section>
+
+      <!-- Chat -->
+      <section class="view" id="view-chat" aria-labelledby="chat-title" hidden>
+        <header class="view__head view__head--row">
+          <div>
+            <h1 id="chat-title">聊天 Chat</h1>
+            <p class="lead">流式调用 <code>POST /v1/chat/completions</code>，逐 token 渲染 SSE 响应。</p>
+          </div>
+          <div class="chat-params" aria-label="生成参数">
+            <label class="field field--inline" for="chat-temperature">
+              <span>temperature</span>
+              <input type="number" id="chat-temperature" min="0" max="2" step="0.1" value="0.7">
+            </label>
+            <label class="field field--inline" for="chat-max-tokens">
+              <span>max_tokens</span>
+              <input type="number" id="chat-max-tokens" min="1" max="32768" step="1" value="512">
+            </label>
+          </div>
+        </header>
+
+        <div class="chat">
+          <div class="chat__meta">
+            <span class="chip" id="chat-model">模型：-</span>
+            <span class="chip chip--muted" id="chat-status">就绪</span>
+            <button type="button" class="btn btn--ghost btn--sm" id="chat-clear">清空对话</button>
+          </div>
+
+          <div class="chat__messages" id="chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
+            <div class="chat__empty" id="chat-empty">
+              <p class="chat__empty-title">还没有消息</p>
+              <p class="hint">试试输入「用一句话介绍你自己」。Enter 发送，Shift+Enter 换行。</p>
+            </div>
+          </div>
+
+          <form class="composer" id="chat-form">
+            <label class="sr-only" for="chat-input">消息内容</label>
+            <textarea id="chat-input" rows="1" maxlength="8000" placeholder="输入消息，Enter 发送，Shift+Enter 换行" autocomplete="off"></textarea>
+            <div class="composer__actions">
+              <button type="submit" class="btn btn--primary" id="chat-send">发送</button>
+              <button type="button" class="btn btn--danger" id="chat-stop" disabled>停止</button>
+            </div>
+          </form>
+          <p class="hint">对话只保存在当前页面内存中，刷新即丢失。API key 仅随请求发送给本页配置的 API base。</p>
+        </div>
+      </section>
+
+      <!-- Train -->
+      <section class="view" id="view-train" aria-labelledby="train-title" hidden>
+        <header class="view__head">
+          <h1 id="train-title">训练 Train</h1>
+          <p class="lead">配置 QLoRA 微调参数，实时生成 YAML 与启动命令。本页不会调用训练 API。</p>
+        </header>
+
+        <div class="train-layout">
+          <form class="panel train-form" id="train-form" aria-label="训练配置">
+            <div class="panel__head">
+              <h2>训练参数</h2>
+            </div>
+
+            <label class="field" for="train-base-model">
+              <span>base_model</span>
+              <input type="text" id="train-base-model" list="train-base-options" value="Qwen/Qwen2.5-7B-Instruct" spellcheck="false" autocomplete="off">
+              <datalist id="train-base-options">
+                <option value="Qwen/Qwen2.5-7B-Instruct"></option>
+                <option value="Qwen/Qwen2.5-7B-Instruct-GGUF"></option>
+                <option value="Qwen/Qwen2.5-0.5B-Instruct-GGUF"></option>
+              </datalist>
+            </label>
+
+            <label class="field" for="train-dataset-path">
+              <span>dataset path</span>
+              <input type="text" id="train-dataset-path" value="data/sft.jsonl" spellcheck="false" autocomplete="off">
+            </label>
+
+            <label class="field" for="train-method">
+              <span>method</span>
+              <select id="train-method">
+                <option value="qlora" selected>qlora</option>
+                <option value="lora">lora</option>
+              </select>
+            </label>
+
+            <div class="field-row">
+              <label class="field" for="train-seq-len">
+                <span>seq_len</span>
+                <input type="number" id="train-seq-len" min="128" max="32768" step="128" value="2048">
+              </label>
+              <label class="field" for="train-micro-batch">
+                <span>micro_batch</span>
+                <input type="number" id="train-micro-batch" min="1" max="64" step="1" value="1">
+              </label>
+              <label class="field" for="train-grad-accum">
+                <span>grad_accum</span>
+                <input type="number" id="train-grad-accum" min="1" max="1024" step="1" value="16">
+              </label>
+            </div>
+
+            <div class="field-row">
+              <label class="field" for="train-lora-r">
+                <span>LoRA r</span>
+                <input type="number" id="train-lora-r" min="1" max="256" step="1" value="16">
+              </label>
+              <label class="field" for="train-lora-alpha">
+                <span>LoRA alpha</span>
+                <input type="number" id="train-lora-alpha" min="1" max="512" step="1" value="32">
+              </label>
+            </div>
+
+            <p class="hint">默认 <code>r=16, alpha=32, dropout=0.05, target_modules=all-linear</code>；数据集格式按 <code>sharegpt</code> 生成。</p>
+          </form>
+
+          <div class="train-output">
+            <section class="panel" aria-labelledby="train-yaml-title">
+              <div class="panel__head">
+                <h2 id="train-yaml-title">YAML 预览</h2>
+                <button type="button" class="btn btn--ghost btn--sm" id="train-copy-yaml">复制 YAML</button>
+              </div>
+              <pre class="code-block" id="train-yaml" aria-live="polite"></pre>
+            </section>
+
+            <section class="panel" aria-labelledby="train-command-title">
+              <div class="panel__head">
+                <h2 id="train-command-title">启动命令</h2>
+                <button type="button" class="btn btn--ghost btn--sm" id="train-copy-command">复制命令</button>
+              </div>
+              <pre class="code-block code-block--single"><code id="train-command">llmgui train --config train.yaml</code></pre>
+              <div class="panel__foot">
+                <button type="button" class="btn btn--sm" id="train-download-yaml">下载 train.yaml</button>
+                <span class="hint">保存为 train.yaml 后执行上面的命令；训练由 Python worker 在终端运行。</span>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" id="view-settings" aria-labelledby="settings-title" hidden>
+        <header class="view__head">
+          <h1 id="settings-title">设置 Settings</h1>
+          <p class="lead">API 连接与界面偏好。所有设置只保存在本机浏览器。</p>
+        </header>
+
+        <form class="panel settings-form" id="settings-form" aria-label="连接设置">
+          <div class="panel__head">
+            <h2>API 连接</h2>
+          </div>
+
+          <label class="field" for="settings-api-base">
+            <span>API base</span>
+            <input type="text" id="settings-api-base" placeholder="留空 = 同源（推荐）" spellcheck="false" autocomplete="off">
+          </label>
+          <p class="hint">留空时请求发往托管本页的服务（默认 <code>http://127.0.0.1:11435</code>），推荐保持留空。只有页面不是由该服务托管时才需要填写完整地址；跨源访问还需目标服务允许 CORS。</p>
+
+          <label class="field" for="settings-api-key">
+            <span>API key</span>
+            <span class="input-row">
+              <input type="password" id="settings-api-key" placeholder="可选，服务端启用 api_key 时填写" spellcheck="false" autocomplete="off">
+              <button type="button" class="btn btn--ghost btn--sm" id="settings-toggle-key" aria-pressed="false">显示</button>
+            </span>
+          </label>
+          <p class="hint">只保存在本机 localStorage，并仅作为 <code>Authorization: Bearer &lt;key&gt;</code> 发送给上面的 API base；页面不会把它发送到其他地址。共享电脑上请勿保存。</p>
+
+          <label class="field" for="settings-theme">
+            <span>主题</span>
+            <select id="settings-theme">
+              <option value="dark">深色</option>
+              <option value="light">浅色</option>
+            </select>
+          </label>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn--primary">保存设置</button>
+            <button type="button" class="btn" id="settings-test">测试连接</button>
+            <button type="button" class="btn btn--ghost" id="settings-clear">清除已保存设置</button>
+          </div>
+          <p class="test-result" id="settings-test-result" role="status"></p>
+        </form>
+
+        <section class="panel" aria-labelledby="about-title">
+          <div class="panel__head">
+            <h2 id="about-title">关于</h2>
+          </div>
+          <dl class="kv">
+            <div class="kv__row"><dt>界面</dt><dd>零构建原生 JS · 无外部 CDN / 字体 / 图片 · 离线可用</dd></div>
+            <div class="kv__row"><dt>托管</dt><dd><code>llmgui serve</code> 将 <code>gui/</code> 作为静态目录挂载在 <code>/</code></dd></div>
+            <div class="kv__row"><dt>API</dt><dd><code>GET /healthz</code> · <code>GET /v1/models</code> · <code>POST /v1/chat/completions</code>（SSE）</dd></div>
+            <div class="kv__row"><dt>隐私</dt><dd>无遥测；对话内容仅留在页面内存</dd></div>
+          </dl>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="assertive"></div>
+</body>
+</html>

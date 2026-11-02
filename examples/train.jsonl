@@ -1,0 +1,2 @@
+{"messages":[{"role":"user","content":"用一句话介绍你自己。"},{"role":"assistant","content":"我是一个本地部署的大语言模型助手。"}]}
+{"messages":[{"role":"user","content":"Python 里怎么读取 JSON 文件？"},{"role":"assistant","content":"可以用 json.load(open(path, encoding='utf-8'))，并配合 with 语句关闭文件。"}]}

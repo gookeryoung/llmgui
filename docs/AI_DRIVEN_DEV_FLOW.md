@@ -1,5 +1,10 @@
 # AI 自动驱动开发流（cndb）
 
+> **llmgui 说明（2026-11-02）**：本文件是从 `cndb` 项目遗留的模板，其中 alembic/plugin/fspack/
+> ADR 0004/CodeUp 等内容不适用于当前 Rust + Python 项目。P0-1a 将按 AGENTS 与
+> [ADR 0001](adr/0001-local-llm-runtime-finetune.md) 改写；在改写完成前，以 AGENTS.md 与
+> ADR 0001 为准。
+
 > 目标：把「用户需求意图 → 方案 → 代码 → 测试 → 部署」全流程交给 AI 编排，由**机器门禁**裁定对错。
 
 ## 1. 设计原则
