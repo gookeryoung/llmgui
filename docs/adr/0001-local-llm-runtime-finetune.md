@@ -520,6 +520,8 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 | 功能验收 | `Qwen/Qwen2.5-7B-Instruct-GGUF` | Q4_K_M（2 分片 4.68GB） | Apache-2.0 | 2026-11-02 列表 API 实测三源存在；P0 完成真实下载验收 |
 | 性能基准 | `Qwen/Qwen3-8B` GGUF | Q4_K_M | Apache-2.0（上线前复核） | 用于 §13.1 对标 |
 | 极省内存 | 同上 Qwen2.5 | IQ4_XS（需 imatrix） | Apache-2.0 | 显式选项，不设默认 |
+| 32G 大模型（主力） | `Qwen/Qwen3-14B-GGUF` | Q4_K_M（单文件 ~9.0GB） | Apache-2.0 | 32k ctx + q8_0 KV 估算 ≈13.8GB，5090D 32GB 余量充足 |
+| 32G 大模型（上限） | `Qwen/Qwen3-32B-GGUF` | Q4_K_M（单文件 ~20.3GB） | Apache-2.0 | 32k ctx 估算 ≈25.4GB，建议 16k ctx + 单路并发，不作默认承诺 |
 | 训练底座 | `Qwen/Qwen2.5-7B-Instruct` | BF16 safetensors ~15.2GB | Apache-2.0 | QLoRA/SFT |
 | 冒烟/CI | `Qwen/Qwen2.5-0.5B-Instruct` | safetensors ~1GB | Apache-2.0 | CPU 可跑 |
 | MIT 备选 | `zai-org/GLM-4-9B-0414` | BF16 / GGUF | MIT | 需复核量化文件 |

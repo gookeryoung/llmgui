@@ -62,7 +62,7 @@
       <section class="view" id="view-models" aria-labelledby="models-title">
         <header class="view__head">
           <h1 id="models-title">模型 Models</h1>
-          <p class="lead">内置默认清单来自 <code>models/v0.toml</code>，离线展示；以下命令请在项目根目录执行。</p>
+          <p class="lead">内置默认清单来自 <code>models/v0.toml</code>，离线展示；以下命令请在项目根目录执行。30GB 级显存（RTX 5090 D 32GB）优先选 14B / 32B Q4_K_M。</p>
         </header>
 
         <section class="panel" aria-labelledby="server-models-title">
@@ -75,7 +75,35 @@
         </section>
 
         <h2 class="section-title">内置默认模型</h2>
+        <div class="model-toolbar">
+          <label class="model-toolbar__search" for="model-search">
+            <span class="sr-only">搜索模型</span>
+            <input
+              type="search"
+              id="model-search"
+              placeholder="搜索模型 / 仓库 / 用途…"
+              autocomplete="off"
+              spellcheck="false"
+            >
+          </label>
+          <div
+            class="model-toolbar__filters"
+            id="model-filters"
+            role="group"
+            aria-label="按用途与显存筛选模型"
+          ></div>
+          <label class="field field--inline model-toolbar__sort" for="model-sort">
+            <span>排序</span>
+            <select id="model-sort">
+              <option value="recommended">推荐顺序</option>
+              <option value="size-desc">体积从大到小</option>
+              <option value="size-asc">体积从小到大</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint" id="model-count" role="status" aria-live="polite"></p>
         <div class="model-grid" id="model-grid"></div>
+        <p class="model-empty" id="model-empty" hidden>没有匹配的模型，试试更换关键词或筛选条件。</p>
 
         <p class="hint">拉取完成后，用 <code>llmgui serve --model &lt;model.gguf&gt;</code> 启动推理服务。</p>
       </section>

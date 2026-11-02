@@ -20,6 +20,9 @@
       file: 'qwen2.5-7b-instruct-q4_k_m.gguf',
       quant: 'Q4_K_M',
       size: '4.68 GB',
+      sizeBytes: 4683073632,
+      vram: '≈8.5 GB @32k',
+      fit: 'ok',
       license: 'Apache-2.0',
       role: 'default',
       purpose: '默认推理模型：日常聊天、问答与常规生成，7B 能力与显存占用较均衡。',
@@ -31,9 +34,42 @@
       file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
       quant: 'Q4_K_M',
       size: '约 0.40 GB',
+      sizeBytes: 398000000,
+      vram: '≈2 GB @32k',
+      fit: 'ok',
       license: 'Apache-2.0',
       role: 'smoke',
       purpose: '冒烟测试与低配机器验证：启动快、占用小，用于打通链路。',
+    },
+    {
+      id: 'qwen3-14b-q4km',
+      name: 'Qwen3-14B-GGUF',
+      repo: 'Qwen/Qwen3-14B-GGUF',
+      file: 'Qwen3-14B-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 9.0 GB',
+      sizeBytes: 9000000000,
+      vram: '≈13.8 GB @32k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'large',
+      purpose:
+        '5090D 32G 主力大模型：14B 能力明显强于 7B，32k 上下文 + q8_0 KV 仍有约 18 GB 余量。',
+    },
+    {
+      id: 'qwen3-32b-q4km',
+      name: 'Qwen3-32B-GGUF',
+      repo: 'Qwen/Qwen3-32B-GGUF',
+      file: 'Qwen3-32B-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 20.3 GB',
+      sizeBytes: 20300000000,
+      vram: '≈25.4 GB @32k',
+      fit: 'tight',
+      license: 'Apache-2.0',
+      role: 'large',
+      purpose:
+        '32G 单卡上限尝试：Q4_K_M + q8_0 KV @32k 约 25 GB，建议 ctx 降到 16k 并单路并发，避免 OOM。',
     },
     {
       id: 'qwen2.5-7b-instruct',
@@ -42,6 +78,9 @@
       file: '',
       quant: 'BF16',
       size: '约 15.2 GB',
+      sizeBytes: 15200000000,
+      vram: '',
+      fit: '',
       license: 'Apache-2.0',
       role: 'train-base',
       purpose: 'Python 微调训练底座（SFT / QLoRA），不作为 GGUF 推理模型使用。',
@@ -50,15 +89,27 @@
 
   const ROLE_LABELS = {
     default: '默认推理',
+    large: '大模型',
     smoke: '冒烟验证',
     'train-base': '训练底座',
   };
 
   const ROLE_TONES = {
     default: 'chip--ok',
+    large: 'chip--accent',
     smoke: '',
     'train-base': 'chip--warn',
   };
+
+  const MODEL_FILTERS = [
+    { id: 'all', label: '全部' },
+    { id: 'fit-ok', label: '32G 可跑' },
+    { id: 'fit-tight', label: '32G 紧张' },
+    { id: 'large', label: '大模型' },
+    { id: 'default', label: '默认' },
+    { id: 'smoke', label: '冒烟' },
+    { id: 'train-base', label: '训练底座' },
+  ];
 
   const VIEWS = ['models', 'chat', 'train', 'settings'];
 
@@ -90,6 +141,9 @@
     theme: 'dark',
     status: { online: false, health: null, error: null, checked: false },
     serverModels: [],
+    modelFilter: 'all',
+    modelQuery: '',
+    modelSort: 'recommended',
     trainYaml: '',
     chat: {
       history: [],
@@ -327,57 +381,160 @@
     return 'llmgui pull ' + model.repo;
   }
 
-  function renderModelCards() {
-    dom.modelGrid.textContent = '';
-    DEFAULT_MODELS.forEach(function (model) {
-      const card = createEl('article', 'model-card');
+  function modelMatchesFilter(model, filter) {
+    if (filter === 'all') return true;
+    if (filter === 'fit-ok') return model.fit === 'ok';
+    if (filter === 'fit-tight') return model.fit === 'tight';
+    return model.role === filter;
+  }
 
-      const head = createEl('div', 'model-card__head');
-      const titleWrap = createEl('div');
-      const title = createEl('h3', 'model-card__title', model.name);
-      const repo = createEl('p', 'model-card__repo', model.repo);
-      titleWrap.appendChild(title);
-      titleWrap.appendChild(repo);
-      const roleChip = createEl(
+  function visibleModels() {
+    const query = state.modelQuery.trim().toLowerCase();
+    const list = DEFAULT_MODELS.filter(function (model) {
+      if (!modelMatchesFilter(model, state.modelFilter)) return false;
+      if (!query) return true;
+      const haystack = [
+        model.name,
+        model.repo,
+        model.id,
+        model.quant,
+        model.role,
+        model.purpose,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.indexOf(query) !== -1;
+    });
+
+    if (state.modelSort === 'size-desc') {
+      list.sort(function (a, b) {
+        return b.sizeBytes - a.sizeBytes;
+      });
+    } else if (state.modelSort === 'size-asc') {
+      list.sort(function (a, b) {
+        return a.sizeBytes - b.sizeBytes;
+      });
+    }
+    return list;
+  }
+
+  function buildModelFilters() {
+    if (!dom.modelFilters) return;
+    dom.modelFilters.textContent = '';
+    MODEL_FILTERS.forEach(function (filter) {
+      const count = DEFAULT_MODELS.filter(function (model) {
+        return modelMatchesFilter(model, filter.id);
+      }).length;
+      const button = createEl('button', 'filter-chip', filter.label + ' ' + count);
+      button.type = 'button';
+      button.dataset.filter = filter.id;
+      dom.modelFilters.appendChild(button);
+    });
+    updateModelFilters();
+  }
+
+  function updateModelFilters() {
+    if (!dom.modelFilters) return;
+    Array.prototype.forEach.call(dom.modelFilters.children, function (button) {
+      const active = button.dataset.filter === state.modelFilter;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function buildFitChip(model) {
+    if (model.fit !== 'ok' && model.fit !== 'tight') return null;
+    const ok = model.fit === 'ok';
+    const chip = createEl(
+      'span',
+      'chip ' + (ok ? 'chip--ok' : 'chip--warn'),
+      ok ? '5090D 32G 可跑' : '32G 显存紧张'
+    );
+    chip.title = ok
+      ? '按体积 + q8_0 KV @32k 估算，RTX 5090 D 32GB 可加载并留有余量'
+      : '估算接近 32GB 上限，建议降 ctx 或减少并发后加载';
+    return chip;
+  }
+
+  function buildModelCard(model) {
+    const card = createEl('article', 'model-card');
+    card.dataset.role = model.role || '';
+
+    const head = createEl('div', 'model-card__head');
+    const titleWrap = createEl('div', 'model-card__title-wrap');
+    titleWrap.appendChild(createEl('h3', 'model-card__title', model.name));
+    titleWrap.appendChild(createEl('p', 'model-card__repo', model.repo));
+
+    const chips = createEl('div', 'model-card__chips');
+    const fitChip = buildFitChip(model);
+    if (fitChip) chips.appendChild(fitChip);
+    chips.appendChild(
+      createEl(
         'span',
         'chip ' + (ROLE_TONES[model.role] || ''),
         ROLE_LABELS[model.role] || model.role
-      );
-      head.appendChild(titleWrap);
-      head.appendChild(roleChip);
+      )
+    );
 
-      const purpose = createEl('p', 'model-card__purpose', model.purpose);
+    head.appendChild(titleWrap);
+    head.appendChild(chips);
 
-      const facts = createEl('dl', 'model-card__facts');
-      const factRows = [
-        ['量化', model.quant],
-        ['大小', model.size],
-        ['许可', model.license],
-        ['文件', model.file || '整仓库（训练底座）'],
-      ];
-      factRows.forEach(function (pair) {
-        const row = createEl('div');
-        row.appendChild(createEl('dt', '', pair[0]));
-        row.appendChild(createEl('dd', '', pair[1]));
-        facts.appendChild(row);
-      });
+    const purpose = createEl('p', 'model-card__purpose', model.purpose);
 
-      const command = copyCommandFor(model);
-      const commandBox = createEl('div', 'model-card__command');
-      const commandCode = createEl('code', '', command);
-      const copyButton = createEl('button', 'btn btn--ghost btn--sm', '复制命令');
-      copyButton.type = 'button';
-      copyButton.dataset.copy = command;
-      copyButton.setAttribute('aria-label', '复制 ' + model.name + ' 的拉取命令');
-      commandBox.appendChild(commandCode);
-      commandBox.appendChild(copyButton);
-
-      card.appendChild(head);
-      card.appendChild(purpose);
-      card.appendChild(facts);
-      card.appendChild(commandBox);
-      dom.modelGrid.appendChild(card);
+    const facts = createEl('dl', 'model-card__facts');
+    const factRows = [
+      ['量化', model.quant],
+      ['体积', model.size],
+      ['显存估算', model.vram || '训练底座，按训练配置另算'],
+      ['许可', model.license],
+    ];
+    factRows.forEach(function (pair) {
+      const row = createEl('div');
+      row.appendChild(createEl('dt', '', pair[0]));
+      row.appendChild(createEl('dd', '', pair[1]));
+      facts.appendChild(row);
     });
+
+    const command = copyCommandFor(model);
+    const commandBox = createEl('div', 'model-card__command');
+    const commandCode = createEl('code', '', command);
+    const copyButton = createEl('button', 'btn btn--ghost btn--sm', '复制命令');
+    copyButton.type = 'button';
+    copyButton.dataset.copy = command;
+    copyButton.setAttribute('aria-label', '复制 ' + model.name + ' 的拉取命令');
+    commandBox.appendChild(commandCode);
+    commandBox.appendChild(copyButton);
+
+    card.appendChild(head);
+    card.appendChild(purpose);
+    card.appendChild(facts);
+    if (model.file) {
+      const fileLine = createEl('p', 'model-card__file');
+      fileLine.appendChild(createEl('span', '', '文件'));
+      fileLine.appendChild(createEl('code', '', model.file));
+      card.appendChild(fileLine);
+    }
+    card.appendChild(commandBox);
+    return card;
+  }
+
+  function renderModelCards() {
+    if (!dom.modelGrid) return;
+    dom.modelGrid.textContent = '';
+    const models = visibleModels();
+    models.forEach(function (model) {
+      dom.modelGrid.appendChild(buildModelCard(model));
+    });
+
+    updateModelFilters();
+    if (dom.modelEmpty) dom.modelEmpty.hidden = models.length > 0;
+    if (dom.modelCount) {
+      const total = DEFAULT_MODELS.length;
+      dom.modelCount.textContent =
+        models.length === total
+          ? '共 ' + total + ' 个模型 · 按 5090D 32GB 显存标注'
+          : '筛选后显示 ' + models.length + ' / ' + total + ' 个模型';
+    }
   }
 
   async function refreshServerModels(options) {
@@ -1073,6 +1230,11 @@
         settings: document.getElementById('view-settings'),
       },
       modelGrid: document.getElementById('model-grid'),
+      modelSearch: document.getElementById('model-search'),
+      modelFilters: document.getElementById('model-filters'),
+      modelSort: document.getElementById('model-sort'),
+      modelCount: document.getElementById('model-count'),
+      modelEmpty: document.getElementById('model-empty'),
       modelsServerStatus: document.getElementById('models-server-status'),
       modelsServerList: document.getElementById('models-server-list'),
       modelsRefresh: document.getElementById('models-refresh'),
@@ -1131,6 +1293,30 @@
     dom.modelsRefresh.addEventListener('click', function () {
       void refreshServerModels({ notify: true });
     });
+
+    if (dom.modelSearch) {
+      dom.modelSearch.addEventListener('input', function () {
+        state.modelQuery = dom.modelSearch.value || '';
+        renderModelCards();
+      });
+    }
+
+    if (dom.modelFilters) {
+      dom.modelFilters.addEventListener('click', function (event) {
+        const button =
+          event.target instanceof Element ? event.target.closest('[data-filter]') : null;
+        if (!button || !button.dataset.filter) return;
+        state.modelFilter = button.dataset.filter;
+        renderModelCards();
+      });
+    }
+
+    if (dom.modelSort) {
+      dom.modelSort.addEventListener('change', function () {
+        state.modelSort = dom.modelSort.value;
+        renderModelCards();
+      });
+    }
 
     dom.themeToggle.addEventListener('change', function () {
       applyTheme(dom.themeToggle.checked ? 'light' : 'dark');
@@ -1224,6 +1410,7 @@
     cacheDom();
     bindEvents();
     loadSettings();
+    buildModelFilters();
     renderModelCards();
     updateTrainPreview();
     setStatusChecking();

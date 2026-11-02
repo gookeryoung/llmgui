@@ -33,13 +33,23 @@ LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
 
 | 页面 | 功能 |
 |---|---|
-| 模型 Models | 内置默认模型清单（镜像 `models/v0.toml`，含用途 / 量化 / 许可 / 大小）；每项提供可复制的 `llmgui pull ...` 命令；展示 `GET /v1/models` 返回的服务端已加载模型 |
+| 模型 Models | 内置默认模型清单（镜像 `models/v0.toml`，含用途 / 量化 / 许可 / 大小 / 32GB 显存估算）；支持关键词搜索、按用途与显存筛选、按体积排序；每项提供可复制的 `llmgui pull ...` 命令；展示 `GET /v1/models` 返回的服务端已加载模型 |
 | 聊天 Chat | 消息列表、发送 / 停止、Enter 发送；`fetch` + `ReadableStream` 解析 SSE（`data:` 行、`[DONE]`）；显示 TTFT、tok/s、token 用量；temperature / max_tokens 可调；错误以气泡 + toast 提示 |
 | 训练 Train | QLoRA 表单（base_model、dataset path、method、seq_len、micro_batch、grad_accum、LoRA r/alpha）；实时生成 YAML 预览与 `llmgui train --config train.yaml` 命令，可复制或下载 YAML |
 | 设置 Settings | API base（留空 = 同源）、API key、主题（深 / 浅）；「测试连接」调用 `/v1/models` 验证连通性与 key |
 
 顶部状态栏每 15 秒轮询 `GET /healthz`，显示 backend / model / version / uptime / 空闲 slots；
 不可达时显示「离线」并给出原因，页面恢复可见或网络恢复时自动重试。
+
+## 模型选择（32GB 显存）
+
+模型页内置两档针对 RTX 5090 D 32GB 的大模型：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx
+估算约 13.8GB，标注「可跑」）与 `Qwen/Qwen3-32B-GGUF`（Q4_K_M，32k ctx 估算约 25.4GB，
+标注「显存紧张」，建议降到 16k ctx 并单路并发）。显存估算按「体积 + q8_0 KV @32k + 固定
+buffer/runtime」口径，精确值以 `llmgui estimate` 读取 GGUF metadata 为准。
+
+工具栏提供：搜索（模型名 / 仓库 / id / 量化 / 用途）、用途与显存筛选 chip（带数量）、
+体积排序；筛选结果为空时显示提示。搜索词、筛选与排序只影响当前渲染，不写入清单。
 
 ## 存储与隐私
 
@@ -68,5 +78,8 @@ LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
 node --check gui/app.js
 ```
 
-修改后建议再用浏览器刷新 <http://127.0.0.1:11435/> 冒烟：状态栏在线、模型页复制命令、
-聊天流式输出、训练 YAML 联动、设置保存后仍生效。
+修改后建议再用浏览器刷新 <http://127.0.0.1:11435/> 冒烟：状态栏在线、模型页搜索/筛选/排序
+与复制命令、聊天流式输出、训练 YAML 联动、设置保存后仍生效。
+
+新增 / 调整内置模型时，`models/v0.toml` 与 `app.js` 的 `DEFAULT_MODELS` 必须同时修改，
+并补齐 `sizeBytes`、`vram`、`fit`（`ok` / `tight`）字段，否则筛选与 32GB 徽标会失准。

@@ -44,6 +44,15 @@ cargo run -p llmgui-cli -- list
 cargo run -p llmgui-cli -- estimate <下载后的 gguf> --ctx 4096
 ```
 
+RTX 5090 D 32GB 上优先用 14B / 32B Q4_K_M（GUI 模型页已内置并标注显存估算）：
+
+```powershell
+# 14B：32k ctx + q8_0 KV 估算约 13.8GB，余量充足（主力档）
+cargo run -p llmgui-cli -- pull Qwen/Qwen3-14B-GGUF --file Qwen3-14B-Q4_K_M.gguf
+# 32B：估算约 25.4GB，建议降到 16k ctx 并单路并发，避免 OOM
+cargo run -p llmgui-cli -- pull Qwen/Qwen3-32B-GGUF --file Qwen3-32B-Q4_K_M.gguf
+```
+
 ## 真实推理
 
 ### 方式 A：WSL/Linux llama-server（当前 Windows 可用）

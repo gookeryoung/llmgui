@@ -18,6 +18,26 @@ license = "Apache-2.0"
 size_bytes = 398000000
 role = "smoke"
 
+# 5090D 32GB（sm_120）推荐的大模型档位；size_bytes 为公开仓库体积的取整估算，
+# 精确值以 GGUF 文件为准（下载后由 `llmgui estimate` 按 metadata 重新计算显存）。
+[[models]]
+id = "qwen3-14b-q4km"
+repo = "Qwen/Qwen3-14B-GGUF"
+file = "Qwen3-14B-Q4_K_M.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 9000000000
+role = "large"
+
+[[models]]
+id = "qwen3-32b-q4km"
+repo = "Qwen/Qwen3-32B-GGUF"
+file = "Qwen3-32B-Q4_K_M.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 20300000000
+role = "large"
+
 [[models]]
 id = "qwen2.5-7b-instruct"
 repo = "Qwen/Qwen2.5-7B-Instruct"
