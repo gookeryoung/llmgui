@@ -10,6 +10,11 @@
   与需求卡片 0003、调研 `docs/research/model-management.md`：参考 LM Studio / Unsloth 规划
   注册表驱动的模型库、任务化下载、加载/卸载/切换/JIT/TTL、预设/别名与训练产物派生注册。
 
+### Fixed
+
+- 下载小文件（如 `.gitattributes`、config）时直接单流拉取，不再触发「server ignored
+  Range」告警；仅包含非 GGUF 文件的 manifest 不再注册成模型。
+
 ### Added
 
 - ADR 0002 模型管理落地（P0/P1 完成，P2a/P2b/P3 部分）(ADR 0002 P0/P1/P2a/P2b/P3)：

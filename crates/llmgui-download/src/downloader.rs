@@ -106,6 +106,18 @@ impl<'a> Downloader<'a> {
         let part = self.store.part_path(&key)?;
         let state_path = self.store.state_path(&key)?;
 
+        // Files that fit in a single chunk gain nothing from range requests and
+        // some servers (e.g. ModelScope for .gitattributes) answer them with a
+        // full 200 response. Fetch those directly to avoid a noisy fallback.
+        if file.size > 0 && chunk_count(file.size, self.chunk_size) <= 1 {
+            let actual = self
+                .download_whole(file, &part, &state_path, &mut on_progress)
+                .await?;
+            return self
+                .finish(actual, &part, &state_path, file, &mut on_progress)
+                .await;
+        }
+
         match self
             .download_chunked(file, &key, &part, &state_path, &mut on_progress)
             .await
@@ -115,6 +127,18 @@ impl<'a> Downloader<'a> {
                     .await
             }
             Err(AttemptError::Fatal(err)) => Err(err),
+            Err(AttemptError::NoRange(reason)) => {
+                tracing::info!(
+                    file = %file.path,
+                    error = %reason,
+                    "server does not support range requests; using single stream"
+                );
+                let actual = self
+                    .download_whole(file, &part, &state_path, &mut on_progress)
+                    .await?;
+                self.finish(actual, &part, &state_path, file, &mut on_progress)
+                    .await
+            }
             Err(AttemptError::Fallback(reason)) => {
                 tracing::warn!(
                     file = %file.path,
@@ -371,6 +395,8 @@ struct ResumeState {
 /// Chunk-level failure: `Fallback` means "retry as a single stream",
 /// `Fatal` aborts the file download.
 enum AttemptError {
+    /// The server ignored `Range`; retry as a single stream without warning.
+    NoRange(LlmguiError),
     Fallback(LlmguiError),
     Fatal(LlmguiError),
 }
@@ -378,7 +404,7 @@ enum AttemptError {
 impl std::fmt::Display for AttemptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Fallback(err) | Self::Fatal(err) => write!(f, "{err}"),
+            Self::NoRange(err) | Self::Fallback(err) | Self::Fatal(err) => write!(f, "{err}"),
         }
     }
 }
@@ -395,7 +421,7 @@ async fn fetch_chunk_with_retry(
         match source.fetch_chunk(file, Some(range.clone())).await {
             Ok(outcome) => {
                 if outcome.range_ignored || outcome.status == 200 {
-                    return Err(AttemptError::Fallback(LlmguiError::Download(format!(
+                    return Err(AttemptError::NoRange(LlmguiError::Download(format!(
                         "{}: server ignored Range for {}",
                         source.name(),
                         file.path
@@ -636,6 +662,22 @@ mod tests {
         let key = identity_key("Qwen/X", "master", &file);
         assert!(!store.part_path(&key).unwrap().exists());
         assert!(!store.state_path(&key).unwrap().exists());
+    }
+
+    #[tokio::test]
+    async fn small_files_skip_range_requests() {
+        let (_cache, _models, store) = store();
+        let data = payload(100);
+        let file = remote("a.gguf", &data, true);
+        let source = FakeSource::new(vec![(file.clone(), data.clone())]);
+        source.list("Qwen/X", "master").await.unwrap();
+        let downloader = Downloader::new(&source, &store, 2, 256);
+        let result = downloader
+            .download("Qwen/X", "master", &file, |_| {})
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&result.path).unwrap(), data);
+        assert_eq!(source.requested_ranges(), vec![None]);
     }
 
     #[tokio::test]

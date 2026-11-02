@@ -492,6 +492,16 @@ fn scan_dir(
         return;
     }
     if let Some(manifest_path) = manifest {
+        // Partial repository pulls (e.g. only `.gitattributes`) are not models.
+        if let Ok(manifest) = ModelManifest::load(&manifest_path)
+            && !manifest
+                .files
+                .iter()
+                .any(|file| file.path.ends_with(".gguf"))
+        {
+            report.skipped += 1;
+            return;
+        }
         match entry_from_manifest(root, &manifest_path) {
             Ok(entry) => merge_entry(registry, entry, report, seen),
             Err(error) => report
@@ -1030,6 +1040,30 @@ mod tests {
         store.save(&mut registry).unwrap();
         let loaded = store.load().unwrap();
         assert_eq!(loaded.models[0].path, models);
+    }
+
+    #[test]
+    fn manifest_without_gguf_is_not_a_model() {
+        let home = temp_home();
+        let dir = home.path().join("models").join("partial");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(".gitattributes"), "* text=auto\n").unwrap();
+        let manifest = serde_json::json!({
+            "schema": 1,
+            "id": "partial",
+            "source": {"type": "modelscope", "repo": "Qwen/X", "revision": "master"},
+            "quant": {"format": "unknown", "type": "unknown"},
+            "files": [{"path": ".gitattributes", "size": 12, "sha256": "0".repeat(64)}]
+        });
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let mut registry = Registry::default();
+        let report = scan(&mut registry, &[home.path().join("models")]).unwrap();
+        assert!(registry.models.is_empty());
+        assert_eq!(report.skipped, 1);
     }
 
     #[test]
