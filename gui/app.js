@@ -2210,7 +2210,10 @@
             encodeURIComponent(id) +
             (action === 'delete' ? '?purge=true' : '/' + action);
           const method = action === 'delete' ? 'DELETE' : 'POST';
-          fetch(apiUrl(path), { method: method, headers: authHeaders() })
+          const headers =
+            action === 'load' ? authHeaders({ 'Content-Type': 'application/json' }) : authHeaders();
+          const body = action === 'load' ? JSON.stringify({}) : undefined;
+          fetch(apiUrl(path), { method: method, headers: headers, body: body })
             .then(function (response) {
               if (!response.ok) return readErrorDetail(response).then(function (text) { throw new Error(text); });
               toast(action === 'load' ? '模型已加载' : action === 'unload' ? '模型已卸载' : '模型已删除', 'ok');

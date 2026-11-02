@@ -12,6 +12,9 @@
 
 ### Fixed
 
+- 修复模型库卡片「加载」在未发送 JSON 请求体时被 415 拒绝
+  （`Expected request with Content-Type: application/json`）：`load` 接口现在允许空 body
+  并使用模型默认参数，GUI 卡片同时显式发送 `{}`。
 - 下载小文件（如 `.gitattributes`、config）时直接单流拉取，不再触发「server ignored
   Range」告警；仅包含非 GGUF 文件的 manifest 不再注册成模型。
 

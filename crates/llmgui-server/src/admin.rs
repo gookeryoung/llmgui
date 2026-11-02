@@ -459,8 +459,9 @@ struct LoadRequest {
 async fn load_model(
     State(state): State<AppState>,
     AxumPath(id): AxumPath<String>,
-    Json(request): Json<LoadRequest>,
+    request: Option<Json<LoadRequest>>,
 ) -> Response {
+    let request = request.map(|Json(request)| request).unwrap_or_default();
     let registry = match state.library.registry() {
         Ok(registry) => registry,
         Err(error) => return ApiError(error).into_response(),
@@ -1335,6 +1336,17 @@ mod tests {
         let (status, body) = call(&app, "GET", "/admin/storage", None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["models_bytes"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn load_accepts_empty_body_and_defaults() {
+        let (home, app) = temp_app();
+        let id = seed_model(home.path());
+        let _ = call(&app, "POST", "/admin/models/scan", None).await;
+        let (status, body) = call(&app, "POST", &format!("/admin/models/{id}/load"), None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["data"]["id"], id);
+        assert_eq!(body["data"]["ctx"], 32768);
     }
 
     #[tokio::test]
