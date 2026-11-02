@@ -83,6 +83,11 @@ cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf>
 ```powershell
 pip install -e python/llmgui_train          # 无 ML 依赖
 pip install -e "python/llmgui_train[cuda]"  # torch/transformers/peft/trl/bnb
+
+# 真实 CPU LoRA 冒烟（已在本机验证 1 step，输出 adapter_model.safetensors）
+cargo run -p llmgui-cli -- train --config examples/train_cpu.json
+
+# 7B QLoRA（需要 CUDA + bitsandbytes）
 cargo run -p llmgui-cli -- train --config examples/train.json
 ```
 

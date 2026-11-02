@@ -262,7 +262,12 @@ def export_adapter(
             )
             files["weights"] = weights_path.name
     else:
-        warning = "no state_dict provided: wrote manifest only (manifest_only export)"
+        existing = directory / ADAPTER_WEIGHTS_FILE
+        if existing.exists():
+            weights_path = existing
+            files["weights"] = existing.name
+        else:
+            warning = "no state_dict provided: wrote manifest only (manifest_only export)"
 
     manifest_path = write_json(
         directory / MANIFEST_FILE,

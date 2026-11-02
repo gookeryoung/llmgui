@@ -179,3 +179,13 @@ def test_export_error_to_rpc():
     assert payload["error"]["code"] == "tool_not_found"
     assert payload["error"]["tool"] == "x"
     assert export.export_error_to_rpc(error)["code"] == "tool_not_found"
+
+def test_export_adapter_detects_existing_weights(tmp_path: Path, config):
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    (adapter_dir / export.ADAPTER_WEIGHTS_FILE).write_bytes(b"fake-safetensors")
+    result = export.export_adapter(adapter_dir, config=config, state_dict=None)
+    assert result["ok"] is True
+    assert result["status"] == "safetensors"
+    assert result["files"]["weights"].endswith(export.ADAPTER_WEIGHTS_FILE)
+    assert result["warnings"] == []

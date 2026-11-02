@@ -458,6 +458,10 @@ async fn train(config: &std::path::Path, python: &str) -> Result<()> {
         .write_all(format!("{hello}\n").as_bytes())
         .await
         .map_err(|e| LlmguiError::Config(format!("write hello: {e}")))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| LlmguiError::Config(format!("flush hello: {e}")))?;
     let cmd = serde_json::json!({
         "jsonrpc": "2.0",
         "id": "train-1",
@@ -468,6 +472,10 @@ async fn train(config: &std::path::Path, python: &str) -> Result<()> {
         .write_all(format!("{cmd}\n").as_bytes())
         .await
         .map_err(|e| LlmguiError::Config(format!("write train.start: {e}")))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| LlmguiError::Config(format!("flush train.start: {e}")))?;
     let mut lines = BufReader::new(stdout).lines();
     while let Some(line) = lines
         .next_line()

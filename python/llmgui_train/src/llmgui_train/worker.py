@@ -92,6 +92,14 @@ class Worker:
     def serve(self) -> int:
         """Read stdin until EOF or until a terminal command finished."""
 
+        # Torch/numpy import can deadlock if a daemon thread is already blocked
+        # reading stdin on Windows; warm the heavy stack before starting it.
+        if self.enforce_dependencies and not trainer.missing_dependencies():
+            import importlib
+
+            for package in ("torch", "transformers", "peft"):
+                importlib.import_module(package)
+
         reader = threading.Thread(target=self._read_loop, name="worker-stdin", daemon=True)
         reader.start()
 
@@ -317,6 +325,15 @@ class Worker:
         missing = trainer.missing_dependencies() if self.enforce_dependencies else []
         if missing:
             raise trainer.MissingDependency(missing)
+
+        # Import the heavy stack in the main worker thread before starting the
+        # training thread. On Windows, importing torch from a newly spawned
+        # thread while the main thread blocks on a queue can deadlock.
+        if self.enforce_dependencies:
+            import importlib
+
+            for package in ("torch", "transformers", "peft"):
+                importlib.import_module(package)
 
         cancel_event = threading.Event()
         with self._state_lock:
