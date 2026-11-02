@@ -23,9 +23,9 @@
 - CLI：`pull/list/serve/run/estimate/bench/train`。
 - Python 训练包：配置、数据（Alpaca/ShareGPT/OpenAI messages）、assistant mask、packing、
   显存估算、PEFT adapter/GGUF 导出封装、stdio NDJSON JSON-RPC worker、QLoRA lazy 训练器；
-  201 个测试、92.91% 覆盖率。
-- 端到端训练冒烟：Qwen2.5-0.5B + CPU LoRA（1 step）经 `llmgui train` 跑通，生成
-  `adapter_model.safetensors` 与训练 manifest；修复了 worker 在 Windows 上 torch 导入
+  200+ 个测试、>92% 覆盖率。
+- 端到端训练冒烟：Qwen2.5-0.5B + CPU LoRA / QLoRA 4-bit（各 1 step）经 `llmgui train` 跑通，
+  生成 `adapter_model.safetensors` 与训练 manifest；修复了 worker 在 Windows 上 torch 导入
   与 stdin 读线程的死锁。
 - Web GUI：模型库、流式聊天、训练 YAML 生成、设置；零构建、离线、无外部资源。
 - 文档门禁：`scripts/check_adr_landing.py`、`scripts/gitkeep_check.py`、Makefile、CI。
@@ -37,6 +37,5 @@
   每次请求新建 context。
 - llama.cpp 后端在部分旧版 MSVC 工具链下运行期初始化崩溃（`STATUS_ACCESS_VIOLATION`），
   需要 VS2022 新工具链或 Linux/WSL；upstream 后端已验证真实推理，mock 后端不受影响。
-- Python 真实 QLoRA（4-bit/bnb）训练路径需要 CUDA + bitsandbytes；本轮已用 CPU torch 验证
-  真实 LoRA SFT 与 adapter 导出，QLoRA 4-bit 未验证。
+- Python 真实 QLoRA 4-bit 已用 bitsandbytes CPU 验证 1 step；7B/GPU 训练性能、GGUF 转换未验证。
 - Tauri 桌面壳未构建，GUI 以本地 Web 形式交付；多卡、DPO、speculative、国产卡为 post-v1.0。
