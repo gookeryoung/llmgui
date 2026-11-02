@@ -109,6 +109,9 @@ cargo run -p llmgui-cli -- train --config examples/train_qlora_7b_bench.json  # 
 5 step（含加载/导出）约 **19s**，loss 5.08 → 3.04；manifest 记录 `torch 2.9.1+cu128`、
 `device=cuda`。Windows 需要 CUDA 版 torch + bitsandbytes。
 
+7B adapter 也已走通 merge → GGUF f16（14.2GB）→ Q4_K_M（4.36GB）→ WSL llama-server，
+CPU 推理约 **12.4 tok/s**。
+
 没有 torch 时 worker 会返回结构化 `missing_dependency`，不会静默失败。
 
 ### 导出 GGUF（已验证）

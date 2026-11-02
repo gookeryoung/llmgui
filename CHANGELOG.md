@@ -29,7 +29,8 @@
   200+ 个测试、>92% 覆盖率。
 - GPU QLoRA 4-bit：RTX 5090 D 上跑通 0.5B 与 7B（4-bit NF4、all-linear、gradient
   checkpointing）；7B 5 step（含加载/导出）约 19s，loss 5.08 → 3.04，manifest 记录
-  `torch 2.9.1+cu128`、`device=cuda`。
+  `torch 2.9.1+cu128`、`device=cuda`。7B adapter → merge → GGUF f16（14.2GB）→
+  Q4_K_M（4.36GB）→ WSL llama-server 也已完成，CPU 推理约 12.4 tok/s。
 - 端到端训练冒烟：Qwen2.5-0.5B + CPU LoRA / QLoRA 4-bit（各 1 step）经 `llmgui train` 跑通，
   生成 `adapter_model.safetensors` 与训练 manifest；修复了 worker 在 Windows 上 torch 导入
   与 stdin 读线程的死锁。
