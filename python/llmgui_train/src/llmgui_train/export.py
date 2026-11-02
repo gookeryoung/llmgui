@@ -650,3 +650,47 @@ def merge_adapter_peft(
         "output": str(output),
         "files": files,
     }
+
+DEFAULT_QUANTIZE_TOOL_ENV = "LLMGUI_TRAIN_QUANTIZE_TOOL"
+DEFAULT_QUANTIZE_TOOL = "llama-quantize"
+
+
+def quantize_gguf(
+    input_path: str | Path,
+    output_path: str | Path,
+    *,
+    qtype: str = "Q4_K_M",
+    tool: str | Sequence[str] | None = None,
+    timeout: float = 3600.0,
+    extra_args: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Quantize an f16/f32 GGUF with llama.cpp ``llama-quantize``."""
+
+    source = Path(input_path)
+    if not source.exists():
+        raise ExportError(f"GGUF input not found: {source}", code="invalid_argument")
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    argv_prefix, searched = resolve_tool(
+        tool,
+        env_var=DEFAULT_QUANTIZE_TOOL_ENV,
+        default=DEFAULT_QUANTIZE_TOOL,
+    )
+    preview = [searched, str(source), str(output), qtype, *extra_args]
+    if argv_prefix is None:
+        return _tool_error(
+            code="tool_not_found",
+            message=(
+                f"quantize tool not found: {searched!r}; configure --tool or "
+                f"${DEFAULT_QUANTIZE_TOOL_ENV} to point at llama-quantize"
+            ),
+            command=preview,
+            data={"tool": searched, "env_var": DEFAULT_QUANTIZE_TOOL_ENV},
+        )
+    result = run_tool(
+        [*argv_prefix, str(source), str(output), qtype, *extra_args],
+        timeout=timeout,
+    )
+    result["quantized"] = str(output) if output.exists() else None
+    result["qtype"] = qtype
+    return result

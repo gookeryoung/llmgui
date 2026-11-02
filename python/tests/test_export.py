@@ -189,3 +189,24 @@ def test_export_adapter_detects_existing_weights(tmp_path: Path, config):
     assert result["status"] == "safetensors"
     assert result["files"]["weights"].endswith(export.ADAPTER_WEIGHTS_FILE)
     assert result["warnings"] == []
+
+def test_quantize_gguf_with_fake_tool(tmp_path: Path):
+    source = tmp_path / "model-f16.gguf"
+    source.write_bytes(b"f16")
+    output = tmp_path / "model-q4.gguf"
+    script = tmp_path / "fake_quantize.py"
+    script.write_text(
+        "import pathlib, sys\n"
+        "input_path, output_path, qtype = sys.argv[1:4]\n"
+        "pathlib.Path(output_path).write_bytes(pathlib.Path(input_path).read_bytes() + qtype.encode())\n",
+        encoding="utf-8",
+    )
+    result = export.quantize_gguf(
+        source,
+        output,
+        qtype="Q4_K_M",
+        tool=[sys.executable, str(script)],
+    )
+    assert result["ok"] is True
+    assert result["qtype"] == "Q4_K_M"
+    assert output.read_bytes() == b"f16Q4_K_M"

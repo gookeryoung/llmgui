@@ -125,6 +125,21 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return worker_main(extra)
 
 
+def cmd_quantize(args: argparse.Namespace) -> int:
+    try:
+        result = export_module.quantize_gguf(
+            args.input,
+            args.output,
+            qtype=args.qtype,
+            tool=shlex.split(args.tool) if args.tool else None,
+        )
+    except export_module.ExportError as exc:
+        _dump(exc.to_dict())
+        return 2
+    _dump(result)
+    return 0 if result.get("ok") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="llmgui-train",
@@ -163,6 +178,13 @@ def build_parser() -> argparse.ArgumentParser:
     gguf.add_argument("--outtype", default="f16")
     gguf.add_argument("--tool", default=None, help="path to convert_hf_to_gguf.py")
     gguf.set_defaults(func=cmd_export_gguf)
+
+    quantize = sub.add_parser("quantize", help="quantize a GGUF with llama-quantize")
+    quantize.add_argument("--input", required=True)
+    quantize.add_argument("--output", required=True)
+    quantize.add_argument("--qtype", default="Q4_K_M")
+    quantize.add_argument("--tool", default=None, help="path to llama-quantize")
+    quantize.set_defaults(func=cmd_quantize)
 
     merge = sub.add_parser("merge", help="merge a LoRA adapter into a base model")
     merge.add_argument("--base-model", required=True)

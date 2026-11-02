@@ -5,18 +5,23 @@
 //! unloading is therefore deferred to process exit; the CLI supports one model
 //! per process today (`hot-swap` is a P3 item).
 
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
+use llama_cpp_2::LlamaStateSeqFlags;
+use llama_cpp_2::SeqState;
 use llama_cpp_2::context::params::{KvCacheType as LlamaKvType, LlamaContextParams};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::sampling::LlamaSampler;
+use llama_cpp_2::token::LlamaToken;
 use llmgui_backend_api::{
     GenerateRequest, GenerateStats, LoadConfig, PrefixCacheStats, TokenEvent,
 };
@@ -35,8 +40,10 @@ pub struct RealBackend {
     model: Mutex<Option<&'static LlamaModel>>,
     model_path: Mutex<Option<std::path::PathBuf>>,
     load_config: Mutex<LoadConfig>,
+    prefix_cache: Mutex<HashMap<u64, SeqState>>,
     prefix_hits: AtomicU64,
     prefix_misses: AtomicU64,
+    prefix_saved_tokens: AtomicU64,
 }
 
 impl RealBackend {
@@ -45,8 +52,10 @@ impl RealBackend {
             model: Mutex::new(None),
             model_path: Mutex::new(None),
             load_config: Mutex::new(LoadConfig::default()),
+            prefix_cache: Mutex::new(HashMap::new()),
             prefix_hits: AtomicU64::new(0),
             prefix_misses: AtomicU64::new(0),
+            prefix_saved_tokens: AtomicU64::new(0),
         }
     }
 
@@ -68,12 +77,14 @@ impl RealBackend {
         *self.model.lock().unwrap() = Some(leaked);
         *self.model_path.lock().unwrap() = Some(model_path.to_path_buf());
         *self.load_config.lock().unwrap() = config.clone();
+        self.prefix_cache.lock().unwrap().clear();
         Ok(())
     }
 
     pub fn unload(&self) -> Result<()> {
         *self.model.lock().unwrap() = None;
         *self.model_path.lock().unwrap() = None;
+        self.prefix_cache.lock().unwrap().clear();
         Ok(())
     }
 
@@ -141,25 +152,50 @@ impl RealBackend {
         }
         let prompt_tokens = tokens.len() as u32;
         let mut batch = LlamaBatch::new(ctx.n_batch() as usize, 1);
+        let cache_key = hash_tokens(&tokens);
+        let cached = {
+            let cache = self.prefix_cache.lock().unwrap();
+            cache.get(&cache_key).cloned()
+        };
+        let mut prefix_hit = false;
         let mut position = 0i32;
-        let mut offset = 0usize;
-        while offset < tokens.len() {
-            let end = (offset + ctx.n_batch() as usize).min(tokens.len());
-            batch.clear();
-            for (index, token) in tokens[offset..end].iter().enumerate() {
-                batch
-                    .add(
-                        *token,
-                        position + index as i32,
-                        &[0],
-                        end == tokens.len() && index == end - offset - 1,
-                    )
-                    .map_err(|e| LlmguiError::Backend(format!("batch add: {e}")))?;
+        if let Some(state) = cached
+            && ctx.state_seq_set(&state, 0).is_ok()
+        {
+            prefix_hit = true;
+            position = tokens.len() as i32;
+            self.prefix_hits.fetch_add(1, Ordering::Relaxed);
+            self.prefix_saved_tokens
+                .fetch_add(u64::from(prompt_tokens), Ordering::Relaxed);
+        }
+        if !prefix_hit {
+            let mut offset = 0usize;
+            while offset < tokens.len() {
+                let end = (offset + ctx.n_batch() as usize).min(tokens.len());
+                batch.clear();
+                for (index, token) in tokens[offset..end].iter().enumerate() {
+                    batch
+                        .add(
+                            *token,
+                            position + index as i32,
+                            &[0],
+                            end == tokens.len() && index == end - offset - 1,
+                        )
+                        .map_err(|e| LlmguiError::Backend(format!("batch add: {e}")))?;
+                }
+                ctx.decode(&mut batch)
+                    .map_err(|e| LlmguiError::Backend(format!("prefill decode: {e}")))?;
+                position += (end - offset) as i32;
+                offset = end;
             }
-            ctx.decode(&mut batch)
-                .map_err(|e| LlmguiError::Backend(format!("prefill decode: {e}")))?;
-            position += (end - offset) as i32;
-            offset = end;
+            if let Ok(state) = ctx.state_seq_get(0, LlamaStateSeqFlags::empty()) {
+                let mut cache = self.prefix_cache.lock().unwrap();
+                if cache.len() >= 8 {
+                    cache.clear();
+                }
+                cache.insert(cache_key, state);
+            }
+            self.prefix_misses.fetch_add(1, Ordering::Relaxed);
         }
 
         let mut sampler = if request.temperature <= 0.0 {
@@ -217,20 +253,20 @@ impl RealBackend {
                 completion_tokens,
                 started,
                 ttft,
-                false,
+                prefix_hit,
                 finish_reason,
             ),
         });
-        self.prefix_misses.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     pub fn prefix_cache_stats(&self) -> PrefixCacheStats {
+        let entries = self.prefix_cache.lock().unwrap().len();
         PrefixCacheStats {
             hits: self.prefix_hits.load(Ordering::Relaxed),
             misses: self.prefix_misses.load(Ordering::Relaxed),
-            saved_prompt_tokens: 0,
-            entries: 0,
+            saved_prompt_tokens: self.prefix_saved_tokens.load(Ordering::Relaxed),
+            entries,
         }
     }
 }
@@ -239,6 +275,14 @@ impl Default for RealBackend {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn hash_tokens(tokens: &[LlamaToken]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for token in tokens {
+        token.0.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Decode a byte stream that may split UTF-8 code points across tokens.
@@ -273,7 +317,16 @@ impl Utf8Decoder {
 
 #[cfg(test)]
 mod tests {
-    use super::Utf8Decoder;
+    use super::{Utf8Decoder, hash_tokens};
+    use llama_cpp_2::token::LlamaToken;
+
+    #[test]
+    fn prefix_hash_is_stable_and_order_sensitive() {
+        let a = [LlamaToken(1), LlamaToken(2), LlamaToken(3)];
+        let b = [LlamaToken(1), LlamaToken(2), LlamaToken(4)];
+        assert_eq!(hash_tokens(&a), hash_tokens(&a));
+        assert_ne!(hash_tokens(&a), hash_tokens(&b));
+    }
 
     #[test]
     fn utf8_split_is_reassembled() {

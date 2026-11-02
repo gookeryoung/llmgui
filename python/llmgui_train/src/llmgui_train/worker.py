@@ -163,6 +163,7 @@ class Worker:
             "train.cancel": self._handle_train_cancel,
             "export.merge": self._handle_export_merge,
             "export.gguf": self._handle_export_gguf,
+            "export.quantize": self._handle_export_quantize,
         }
         handler = handlers.get(request.method)
         if handler is None:
@@ -419,14 +420,21 @@ class Worker:
                     protocol.ErrorCode.INVALID_PARAMS,
                     f"export.merge requires a non-empty string '{key}'",
                 )
-        result = export_module.merge_adapter(
-            params["base_model"],
-            params["adapter_dir"],
-            params["output_path"],
-            tool=params.get("tool"),
-            timeout=float(params.get("timeout", 3600.0)),
-            extra_args=params.get("extra_args", ()),
-        )
+        if params.get("native"):
+            result = export_module.merge_adapter_peft(
+                params["base_model"],
+                params["adapter_dir"],
+                params["output_path"],
+            )
+        else:
+            result = export_module.merge_adapter(
+                params["base_model"],
+                params["adapter_dir"],
+                params["output_path"],
+                tool=params.get("tool"),
+                timeout=float(params.get("timeout", 3600.0)),
+                extra_args=params.get("extra_args", ()),
+            )
         if not result.get("ok"):
             raise protocol.RpcError(
                 protocol.server_error_code(result["error"].get("code", "export_failed")),
@@ -455,6 +463,30 @@ class Worker:
             raise protocol.RpcError(
                 protocol.server_error_code(result["error"].get("code", "export_failed")),
                 result["error"].get("message", "GGUF export failed"),
+                data=result["error"],
+            )
+        return result
+
+    def _handle_export_quantize(self, request: protocol.Request) -> dict[str, Any]:
+        params = dict(request.params)
+        for key in ("input_path", "output_path"):
+            if not isinstance(params.get(key), str) or not params[key].strip():
+                raise protocol.RpcError(
+                    protocol.ErrorCode.INVALID_PARAMS,
+                    f"export.quantize requires a non-empty string '{key}'",
+                )
+        result = export_module.quantize_gguf(
+            params["input_path"],
+            params["output_path"],
+            qtype=str(params.get("qtype", "Q4_K_M")),
+            tool=params.get("tool"),
+            timeout=float(params.get("timeout", 3600.0)),
+            extra_args=params.get("extra_args", ()),
+        )
+        if not result.get("ok"):
+            raise protocol.RpcError(
+                protocol.server_error_code(result["error"].get("code", "export_failed")),
+                result["error"].get("message", "GGUF quantization failed"),
                 data=result["error"],
             )
         return result

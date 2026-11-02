@@ -1149,6 +1149,7 @@ name = "llmgui-scheduler"
 version = "0.1.0"
 dependencies = [
  "llmgui-backend-api",
+ "llmgui-backend-mock",
  "llmgui-core",
  "tokio",
  "tracing",
