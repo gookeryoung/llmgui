@@ -117,6 +117,7 @@ impl llmgui_backend_api::Backend for UpstreamBackend {
             "temperature": request.temperature,
             "top_p": request.top_p,
             "stream": true,
+            "cache_prompt": true,
             "stop": request.stop,
             "seed": request.seed,
         });

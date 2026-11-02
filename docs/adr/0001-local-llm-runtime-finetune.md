@@ -585,7 +585,7 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 | 期 | 状态 | 代码落点 | 测试 | 提交 |
 |---|---|---|---|---|
 | P0 下载→运行 | 部分落地 | `crates/llmgui-download`、`llmgui-server`、`llmgui-cli`、`llmgui-models`、`gui/`、`llmgui-backend-upstream` | `cargo test --workspace`；mock 与 upstream 真实推理冒烟通过（WSL llama-server）；真实 GGUF 下载 + `estimate` 通过；in-process FFI 仍受环境阻塞 | feat/llmgui-p0-p3 |
-| P1 快且省 | 进行中 | `crates/llmgui-scheduler`（槽位/取消）、`backend-llamacpp`（FFI 编译通过） | 取消/并发基础测试；prefix cache、KV 量化门槛、4 并发压测未完成 | feat/llmgui-p0-p3 |
+| P1 快且省 | 进行中 | `crates/llmgui-scheduler`（槽位/取消）、`backend-llamacpp`（FFI 编译通过）、`backend-upstream`（`cache_prompt` 复用 llama-server 前缀缓存） | 取消/并发基础测试；in-process prefix cache、KV 量化门槛、4 并发压测未完成 | e027796 |
 | P2a 训练闭环 | 部分落地 | `python/llmgui_train`（config/data/estimate/export/worker/trainer）、CLI `train` 桥 | Python 201 tests / 92.91% 覆盖率；真实 QLoRA 未执行（环境无 torch） | feat/llmgui-p0-p3 |
 | P2b GUI | 已落地 | `gui/index.html`、`styles.css`、`app.js` | 静态自检 + 无浏览器 DOM/SSE 集成测试；`llmgui serve` 托管 200 | feat/llmgui-p0-p3 |
 | P3 硬化与发布 | 进行中 | Makefile、CI、ADR 门禁、CHANGELOG、`docs/adr/TEMPLATE.md` | `make check-docs`/clippy 通过；安装包/签名/性能长稳未完成 | feat/llmgui-p0-p3 |
