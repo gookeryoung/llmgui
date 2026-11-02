@@ -111,6 +111,18 @@ python -m llmgui_train.cli export-gguf `
 ```
 
 量化：`llama-quantize merged-f16.gguf merged-q4km.gguf Q4_K_M`（Linux/WSL 构建的 llama.cpp），
+也可用封装命令：
+
+```powershell
+python -m llmgui_train.cli quantize `
+  --input C:/Users/me/llmgui-home/jobs/merged-f16.gguf `
+  --output C:/Users/me/llmgui-home/jobs/merged-q4km.gguf `
+  --qtype Q4_K_M `
+  --tool "C:/path/to/llama-quantize.exe"
+```
+
+WSL 用户可直接运行 Linux 版 `llama-quantize`（Windows 路径通过 `/mnt/c` 传入）。
+
 然后用 `llama-server` 加载该 GGUF，即可通过 upstream 后端服务。
 
 ## 目录
