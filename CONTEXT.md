@@ -38,6 +38,17 @@
 | SFT / DPO | — | 监督微调 / 直接偏好优化；SFT P2a，DPO P2a（未完成顺延 P3） |
 | FSDP | — | PyTorch 分片数据并行；P3 单机多卡二选一，post-v1.0 视情况 |
 | 内容寻址存储 | CAS | 以 SHA256 为键存放下载块，多个模型快照硬链接复用 |
+| 模型库 | library | 本机已安装/已导入模型的统一索引；安装态与加载态分离 |
+| 注册表 | registry | `<LLMGUI_HOME>/registry.json`，记录模型索引与用户偏好（别名/默认值/收藏）；可由 manifest 重建 |
+| 模型发现 | discover | 按仓库 ID / URL / 关键词检索模型，并按量化、显存、许可以选 |
+| 模型适配性 | fit | 按 GGUF metadata + ctx + KV 估算的 24GB/32GB 可跑结论 |
+| 即时加载 | JIT | 收到请求时才加载已安装模型；并发首请求合并为一次加载 |
+| 空闲卸载 | TTL | 模型在无请求且空闲超过设定秒数后自动卸载；0 表示不自动卸载 |
+| 每模型默认值 | per-model defaults | 每个模型的 ctx/KV/GPU offload/slots/TTL，CLI 与 GUI 共用 |
+| 模型别名 | alias | 全局唯一的可读标识，`model` 参数按「id → 别名 → 唯一前缀」解析 |
+| 预设 | preset | 命名保存的 system prompt 与采样参数，不含加载参数 |
+| 派生模型 | derived model | 由训练/merge/量化产物注册出的模型，记录 base 与 adapter lineage |
+| 训练底座 | training base | 可训练的 safetensors 模型，只进入训练选择器，不作为推理模型加载 |
 | 清单 | manifest | 模型/adapter/训练产物的版本化元数据；含来源、哈希、许可、量化参数 |
 | 源 | source | 模型下载源；默认 ModelScope，fallback hf-mirror / Gitee AI（HF 兼容） |
 | 能力探测 | capabilities | Python 侧检测设备、量化后端、Triton、注意力实现，选择受支持组合 |

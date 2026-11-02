@@ -603,7 +603,8 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
   1. 在 WSL/Linux 上跑通或修复 in-process FFI；`upstream` 后端已可作 Windows 保底路径；
   2. 实现 P1 的 prefix cache（seq state 快照/恢复）与逐步 batch 拼装，补 4 并发性能门槛；
   3. 安装 `torch/transformers/peft/trl/bitsandbytes` 跑通 7B QLoRA 与 adapter→GGUF 全链路；
-  4. 安装脚本/release workflow 已就绪，Tauri 壳已交付；剩余签名、桌面壳 bundle/自动更新、崩溃恢复与性能长稳。
+  4. 安装脚本/release workflow 已就绪，Tauri 壳已交付；剩余签名、桌面壳 bundle/自动更新、崩溃恢复与性能长稳；
+  5. 模型管理（库/发现下载/运行时生命周期/训练产物）按 ADR 0002 推进（Proposed，待方案评审）。
 - 已知坑：
   1. 仓库现有 `docs/AI_DRIVEN_DEV_FLOW.md`、`BUNDLE_BUDGET.md`、`REFACTOR_BACKLOG.md` 是 cndb 遗留，部分链接不存在；
   2. Windows 上 llama.cpp 初始化崩溃（见 §18）；mock/upstream 后端不受影响；upstream 需要用户先启动 `llama-server`（可运行在 WSL）；

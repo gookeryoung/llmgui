@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Docs
+
+- 新增 ADR 0002《模型管理（模型库 / 发现下载 / 运行时生命周期 / 训练产物）》（Proposed，待评审）
+  与需求卡片 0003、调研 `docs/research/model-management.md`：参考 LM Studio / Unsloth 规划
+  注册表驱动的模型库、任务化下载、加载/卸载/切换/JIT/TTL、预设/别名与训练产物派生注册。
+
 ### Added
 
 - 模型清单新增 5090D 32GB 大模型档位：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx 估算
