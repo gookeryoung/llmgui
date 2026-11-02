@@ -744,8 +744,9 @@ fn sanitize_id(raw: &str) -> String {
 pub fn infer_quant_from_name(name: &str) -> String {
     const QUANTS: &[&str] = &[
         "IQ1_S", "IQ1_M", "IQ2_XXS", "IQ2_XS", "IQ2_S", "IQ3_XXS", "IQ3_XS", "IQ3_S", "IQ3_M",
-        "IQ4_XS", "IQ4_NL", "Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", "Q4_0", "Q4_1", "Q4_K_S",
-        "Q4_K_M", "Q5_0", "Q5_1", "Q5_K_S", "Q5_K_M", "Q6_K", "Q8_0", "F16", "BF16", "F32",
+        "IQ4_XS", "IQ4_NL", "Q2_K", "Q3_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", "Q4_0", "Q4_1", "Q4_K",
+        "Q4_K_S", "Q4_K_M", "Q5_0", "Q5_1", "Q5_K", "Q5_K_S", "Q5_K_M", "Q6_K", "Q8_0", "F16",
+        "BF16", "F32",
     ];
     let upper = name.to_uppercase();
     let mut best: Option<&str> = None;
@@ -980,6 +981,8 @@ mod tests {
             "Q4_K_M".to_string()
         );
         assert_eq!(infer_quant_from_name("model-IQ4_XS"), "IQ4_XS".to_string());
+        assert_eq!(infer_quant_from_name("phi-4-Q4_K"), "Q4_K".to_string());
+        assert_eq!(infer_quant_from_name("phi-4-Q4_K_S"), "Q4_K_S".to_string());
         assert_eq!(infer_quant_from_name("model"), "unknown".to_string());
     }
 

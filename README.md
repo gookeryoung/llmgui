@@ -60,6 +60,7 @@ cargo run -p llmgui-cli -- pull Qwen/Qwen3-32B-GGUF --file Qwen3-32B-Q4_K_M.gguf
 
 ```powershell
 llmgui models list                 # 已安装模型（--json 输出完整注册表）
+llmgui models search coder         # 搜索推荐目录（Qwen3 / Coder / Phi-4 / Mistral / MoE）
 llmgui models scan                 # 扫描默认目录与 config 里的 extra_dirs
 llmgui models import path\to\model.gguf
 llmgui models import path\to\merged.gguf --base-id Qwen--Qwen3-14B-GGUF--q4-k-m
@@ -77,6 +78,7 @@ llmgui unload --all
 - 单卡默认只常驻一个模型；切换会 drain 在飞请求（超时可配 `LLMGUI_DRAIN_TIMEOUT_SECS`），失败回滚旧模型。
 - 加载前按 GGUF metadata + ctx/KV/slots 估算显存；超过 `LLMGUI_VRAM_BYTES`（默认 32GB）直接拒绝。
 - Web GUI 的模型页分「模型库 / 发现 / 下载」：支持搜索、显存筛选、加载/卸载、别名与默认值、删除、下载队列与磁盘回收。
+- 推荐目录当前收录 11 个许可友好的条目（Apache-2.0 / MIT）：Qwen2.5 7B/0.5B、Qwen3 4B/8B/14B/32B/30B-A3B、Qwen2.5-Coder 7B、Phi-4 14B、Mistral-Small 24B 与 Qwen2.5-7B 训练底座。
 
 ## 真实推理
 

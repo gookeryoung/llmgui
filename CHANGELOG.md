@@ -24,6 +24,11 @@
   - 派生模型注册（`--base-id` / `--adapter-id`）与 `model.yaml` 兼容 JSON 描述符导入导出；
   - Web GUI 模型页重构为「模型库 / 发现 / 下载」：搜索/显存筛选/排序、详情抽屉、加载/卸载/
     删除/校验、推荐目录与仓库解析、下载队列与磁盘回收。
+- 发现目录扩充到 11 个许可友好的条目：新增 Qwen3-8B、Qwen3-4B、Qwen2.5-Coder-7B、
+  Qwen3-30B-A3B（MoE）、Phi-4 14B（MIT）、Mistral-Small-24B（Apache-2.0），体积按
+  2026-11-03 ModelScope 列表实测；发现页角色标签中文化。
+- 修复：识别 `Q4_K` / `Q5_K` / `Q3_K` 等无后缀量化；仓库同时提供单文件与分片时
+  优先单文件，避免重复下载权重。
 - 模型清单新增 5090D 32GB 大模型档位：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx 估算
   ≈13.8GB）与 `Qwen/Qwen3-32B-GGUF`（Q4_K_M，估算 ≈25.4GB，建议 16k ctx + 单路并发），
   `models/v0.toml` 与 GUI 内置清单同步（需求卡片 0002）。

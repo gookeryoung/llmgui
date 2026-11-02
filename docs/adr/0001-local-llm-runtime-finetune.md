@@ -518,7 +518,13 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 | 用途 | 仓库 | 格式/量化 | 许可 | 备注 |
 |---|---|---|---|---|
 | 功能验收 | `Qwen/Qwen2.5-7B-Instruct-GGUF` | Q4_K_M（2 分片 4.68GB） | Apache-2.0 | 2026-11-02 列表 API 实测三源存在；P0 完成真实下载验收 |
-| 性能基准 | `Qwen/Qwen3-8B` GGUF | Q4_K_M | Apache-2.0（上线前复核） | 用于 §13.1 对标 |
+| 性能基准 | `Qwen/Qwen3-8B-GGUF` | Q4_K_M（5.03GB） | Apache-2.0 | 用于 §13.1 对标 |
+| 均衡日常 | `Qwen/Qwen3-8B-GGUF` | Q4_K_M（5.03GB） | Apache-2.0 | 24/32GB 从容，作为 7B 升级档 |
+| 轻量 | `Qwen/Qwen3-4B-GGUF` | Q4_K_M（2.50GB） | Apache-2.0 | 小显存/CPU 可用 |
+| 代码 | `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` | Q4_K_M（4.68GB） | Apache-2.0 | 单文件；与 7B 通用档同体积 |
+| 推理/MIT | `microsoft/phi-4-gguf` | Q4_K（9.05GB） | MIT | 数学/逻辑对照模型 |
+| MoE | `Qwen/Qwen3-30B-A3B-GGUF` | Q4_K_M（18.56GB） | Apache-2.0 | 激活约 3B，decode 快；32GB 可跑，24GB 降 ctx |
+| 24B 通用 | `bartowski/Mistral-Small-24B-Instruct-2501-GGUF` | Q4_K_M（14.33GB） | Apache-2.0 | 社区 GGUF，非 Qwen 家族对照 |
 | 极省内存 | 同上 Qwen2.5 | IQ4_XS（需 imatrix） | Apache-2.0 | 显式选项，不设默认 |
 | 32G 大模型（主力） | `Qwen/Qwen3-14B-GGUF` | Q4_K_M（单文件 ~9.0GB） | Apache-2.0 | 32k ctx + q8_0 KV 估算 ≈13.8GB，5090D 32GB 余量充足 |
 | 32G 大模型（上限） | `Qwen/Qwen3-32B-GGUF` | Q4_K_M（单文件 ~20.3GB） | Apache-2.0 | 32k ctx 估算 ≈25.4GB，建议 16k ctx + 单路并发，不作默认承诺 |
@@ -527,7 +533,7 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 | MIT 备选 | `zai-org/GLM-4-9B-0414` | BF16 / GGUF | MIT | 需复核量化文件 |
 | 不列默认 | InternLM2.5 / Baichuan2 | — | `license:other` / 自定义 | 需人工审核 |
 
-> 本表只作 v0 口径；P0 将其下沉为 `models/v0.toml`（单一数据源），manifest 与 GUI 从该文件读取，避免 ADR 与实现漂移。
+> 本表只作 v0 口径；`models/v0.toml` 是推荐目录（发现页种子）的单一数据源，GUI 通过 `/admin/catalog` 读取；已安装模型另由 `registry.json` 索引。体积为 2026-11-03 ModelScope 列表实测值。
 
 ## 14. 风险与缓解
 

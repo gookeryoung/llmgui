@@ -43,7 +43,9 @@ LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
 
 ## 模型选择（32GB 显存）
 
-推荐目录仍来自 `models/v0.toml`（`GET /admin/catalog`），包含两档针对 RTX 5090 D 32GB 的大模型：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx
+推荐目录仍来自 `models/v0.toml`（`GET /admin/catalog`），收录 11 个 Apache-2.0 / MIT 条目：
+Qwen2.5 7B/0.5B、Qwen3 4B/8B/14B/32B/30B-A3B、Qwen2.5-Coder 7B、Phi-4 14B、Mistral-Small 24B
+与 7B 训练底座。其中针对 RTX 5090 D 32GB 的大模型：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx
 估算约 13.8GB，标注「可跑」）与 `Qwen/Qwen3-32B-GGUF`（Q4_K_M，32k ctx 估算约 25.4GB，
 标注「显存紧张」，建议降到 16k ctx 并单路并发）。显存估算按「体积 + q8_0 KV @32k + 固定
 buffer/runtime」口径，精确值以 `llmgui estimate` 读取 GGUF metadata 为准。

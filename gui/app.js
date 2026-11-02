@@ -28,6 +28,90 @@
       purpose: '默认推理模型：日常聊天、问答与常规生成，7B 能力与显存占用较均衡。',
     },
     {
+      id: 'qwen3-8b-q4km',
+      name: 'Qwen3-8B-GGUF',
+      repo: 'Qwen/Qwen3-8B-GGUF',
+      file: 'Qwen3-8B-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 5.0 GB',
+      sizeBytes: 5027783488,
+      vram: '≈9.2 GB @32k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'balanced',
+      purpose: '7B 的升级档：同价位质量更好，24GB/32GB 都从容，适合作为日常默认。',
+    },
+    {
+      id: 'qwen3-4b-q4km',
+      name: 'Qwen3-4B-GGUF',
+      repo: 'Qwen/Qwen3-4B-GGUF',
+      file: 'Qwen3-4B-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 2.5 GB',
+      sizeBytes: 2497280256,
+      vram: '≈6.8 GB @32k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'lite',
+      purpose: '轻量通用档：小显存/CPU 也能跑，响应快，适合草稿、分类与批量任务。',
+    },
+    {
+      id: 'qwen2.5-coder-7b-q4km',
+      name: 'Qwen2.5-Coder-7B-Instruct-GGUF',
+      repo: 'Qwen/Qwen2.5-Coder-7B-Instruct-GGUF',
+      file: 'qwen2.5-coder-7b-instruct-q4_k_m.gguf',
+      quant: 'Q4_K_M',
+      size: '约 4.68 GB',
+      sizeBytes: 4683073536,
+      vram: '≈8.5 GB @32k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'coder',
+      purpose: '代码专用档：补全、重构与多语言问答，体积与 7B 通用档相当。',
+    },
+    {
+      id: 'phi-4-14b-q4k',
+      name: 'Phi-4-GGUF',
+      repo: 'microsoft/phi-4-gguf',
+      file: 'phi-4-Q4_K.gguf',
+      quant: 'Q4_K',
+      size: '约 9.05 GB',
+      sizeBytes: 9053114560,
+      vram: '≈14.3 GB @32k',
+      fit: 'ok',
+      license: 'MIT',
+      role: 'reasoning',
+      purpose: 'MIT 许可的 14B 推理档：数学与逻辑较强，适合作为非 Qwen 家族的对照模型。',
+    },
+    {
+      id: 'qwen3-30b-a3b-q4km',
+      name: 'Qwen3-30B-A3B-GGUF',
+      repo: 'Qwen/Qwen3-30B-A3B-GGUF',
+      file: 'Qwen3-30B-A3B-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 18.56 GB',
+      sizeBytes: 18556685824,
+      vram: '≈22 GB @32k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'moe',
+      purpose: 'MoE 档：总参数 30B、激活约 3B，decode 速度快；32GB 显存可跑，24GB 需降 ctx。',
+    },
+    {
+      id: 'mistral-small-24b-q4km',
+      name: 'Mistral-Small-24B-Instruct-2501-GGUF',
+      repo: 'bartowski/Mistral-Small-24B-Instruct-2501-GGUF',
+      file: 'Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 14.33 GB',
+      sizeBytes: 14333908672,
+      vram: '≈19 GB @32k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'large',
+      purpose: 'Apache-2.0 的 24B 通用档：多语言与长文能力均衡，32GB 卡可跑；社区 GGUF 由 bartowski 维护。',
+    },
+    {
       id: 'qwen2.5-0.5b-instruct-q4km',
       name: 'Qwen2.5-0.5B-Instruct-GGUF',
       repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF',
@@ -99,6 +183,18 @@
     large: 'chip--accent',
     smoke: '',
     'train-base': 'chip--warn',
+  };
+
+  const CATALOG_ROLE_LABELS = {
+    default: '默认',
+    balanced: '均衡',
+    lite: '轻量',
+    coder: '代码',
+    reasoning: '推理',
+    moe: 'MoE',
+    large: '大模型',
+    smoke: '冒烟',
+    'train-base': '训练底座',
   };
 
   const MODEL_FILTERS = [
@@ -945,7 +1041,11 @@
       wrap.appendChild(createEl('p', 'model-card__repo', item.repo));
       const chips = createEl('div', 'model-card__chips');
       chips.appendChild(createEl('span', 'chip', item.quant || '—'));
-      if (item.role) chips.appendChild(createEl('span', 'chip chip--muted', item.role));
+      if (item.role) {
+        chips.appendChild(
+          createEl('span', 'chip chip--muted', CATALOG_ROLE_LABELS[item.role] || item.role)
+        );
+      }
       head.appendChild(wrap);
       head.appendChild(chips);
 

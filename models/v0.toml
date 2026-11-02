@@ -1,5 +1,7 @@
 schema = 1
 
+# 内置推荐目录（发现页数据源）。只收录许可友好的模型（Apache-2.0 / MIT）；
+# size_bytes 为 2026-11-03 ModelScope 文件列表实测值，文件名为仓库内完整路径。
 [[models]]
 id = "qwen2.5-7b-instruct-q4km"
 repo = "Qwen/Qwen2.5-7B-Instruct-GGUF"
@@ -10,16 +12,60 @@ size_bytes = 4683073632
 role = "default"
 
 [[models]]
-id = "qwen2.5-0.5b-instruct-q4km"
-repo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
-file = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+id = "qwen3-8b-q4km"
+repo = "Qwen/Qwen3-8B-GGUF"
+file = "Qwen3-8B-Q4_K_M.gguf"
 quant = "Q4_K_M"
 license = "Apache-2.0"
-size_bytes = 398000000
-role = "smoke"
+size_bytes = 5027783488
+role = "balanced"
 
-# 5090D 32GB（sm_120）推荐的大模型档位；size_bytes 为公开仓库体积的取整估算，
-# 精确值以 GGUF 文件为准（下载后由 `llmgui estimate` 按 metadata 重新计算显存）。
+[[models]]
+id = "qwen3-4b-q4km"
+repo = "Qwen/Qwen3-4B-GGUF"
+file = "Qwen3-4B-Q4_K_M.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 2497280256
+role = "lite"
+
+[[models]]
+id = "qwen2.5-coder-7b-q4km"
+repo = "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+file = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 4683073536
+role = "coder"
+
+[[models]]
+id = "phi-4-14b-q4k"
+repo = "microsoft/phi-4-gguf"
+file = "phi-4-Q4_K.gguf"
+quant = "Q4_K"
+license = "MIT"
+size_bytes = 9053114560
+role = "reasoning"
+
+[[models]]
+id = "qwen3-30b-a3b-q4km"
+repo = "Qwen/Qwen3-30B-A3B-GGUF"
+file = "Qwen3-30B-A3B-Q4_K_M.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 18556685824
+role = "moe"
+
+[[models]]
+id = "mistral-small-24b-q4km"
+repo = "bartowski/Mistral-Small-24B-Instruct-2501-GGUF"
+file = "Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 14333908672
+role = "large"
+
+# 5090D 32GB（sm_120）的大模型档位；显存以 GGUF metadata 估算为准。
 [[models]]
 id = "qwen3-14b-q4km"
 repo = "Qwen/Qwen3-14B-GGUF"
@@ -37,6 +83,15 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 20300000000
 role = "large"
+
+[[models]]
+id = "qwen2.5-0.5b-instruct-q4km"
+repo = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+file = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 398000000
+role = "smoke"
 
 [[models]]
 id = "qwen2.5-7b-instruct"

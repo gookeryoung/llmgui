@@ -756,6 +756,27 @@ async fn catalog_resolve(Query(query): Query<ResolveQuery>) -> Response {
             let quants: Vec<Value> = groups
                 .into_iter()
                 .map(|(quant, files)| {
+                    // Some repos publish both a single-file quant and its
+                    // shard split; prefer the single file so we do not download
+                    // the same weights twice.
+                    let has_shards = files.iter().any(|file| {
+                        file.get("path")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| path.contains("-of-"))
+                    });
+                    let single = files.iter().find(|file| {
+                        file.get("path")
+                            .and_then(Value::as_str)
+                            .is_some_and(|path| !path.contains("-of-"))
+                    });
+                    let files: Vec<Value> = if has_shards {
+                        match single {
+                            Some(single) => vec![single.clone()],
+                            None => files,
+                        }
+                    } else {
+                        files
+                    };
                     let total: u64 = files
                         .iter()
                         .filter_map(|file| file.get("size").and_then(Value::as_u64))
@@ -1298,7 +1319,16 @@ mod tests {
         let (_home, app) = temp_app();
         let (status, body) = call(&app, "GET", "/admin/catalog", None).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["data"].as_array().unwrap().len() >= 5);
+        assert!(body["data"].as_array().unwrap().len() >= 11);
+        let repos: Vec<&str> = body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|item| item["repo"].as_str())
+            .collect();
+        assert!(repos.contains(&"Qwen/Qwen3-30B-A3B-GGUF"));
+        assert!(repos.contains(&"microsoft/phi-4-gguf"));
+        assert!(repos.contains(&"bartowski/Mistral-Small-24B-Instruct-2501-GGUF"));
         let (status, body) = call(&app, "GET", "/admin/catalog/search?q=qwen3-32b", None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["data"].as_array().unwrap().len(), 1);
