@@ -588,7 +588,7 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 | P1 快且省 | 进行中 | `crates/llmgui-scheduler`（槽位/取消，3 个并发/取消测试）、`backend-llamacpp`（FFI 编译通过，exact-prefix `SeqState` 快照/恢复）、`backend-upstream`（`cache_prompt` 复用 llama-server 前缀缓存） | 调度/取消测试通过；in-process prefix cache 已实现但因 Windows FFI 阻塞未运行时验证；KV 量化门槛、4 并发压测未完成 | e027796 |
 | P2a 训练闭环 | 部分落地 | `python/llmgui_train`（config/data/estimate/export/worker/trainer）、CLI `train` 桥 | Python tests 全绿；真实 CPU LoRA 与 QLoRA 4-bit（bitsandbytes CPU）各 1 step 跑通；adapter→native merge→GGUF f16→Q4_K_M→WSL llama-server 推理闭环已验证；7B/GPU 性能未验证 | a856002 |
 | P2b GUI | 已落地 | `gui/index.html`、`styles.css`、`app.js` | 静态自检 + 无浏览器 DOM/SSE 集成测试；`llmgui serve` 托管 200 | feat/llmgui-p0-p3 |
-| P3 硬化与发布 | 进行中 | Makefile、CI、ADR 门禁、CHANGELOG、`docs/adr/TEMPLATE.md` | `make check-docs`/clippy 通过；安装包/签名/性能长稳未完成 | feat/llmgui-p0-p3 |
+| P3 硬化与发布 | 进行中 | Makefile、CI、ADR 门禁、CHANGELOG、`docs/adr/TEMPLATE.md`、`--start-wsl` 自动拉起 upstream | `make check-docs`/clippy 通过；4 并发 upstream 288 tok/s；安装包/签名/长稳未完成 | 379e8f2 |
 
 > 真实 llama.cpp 运行：Windows 11 build 26300 + Intel Arrow Lake 上，`llama_backend_init()` 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 和预编译 llama-cli 上均触发 `STATUS_ACCESS_VIOLATION`；FFI 编译与模型下载/解析正常。已新增 `upstream` 后端，通过 WSL 中的 `llama-server` 完成真实 Qwen2.5-0.5B 推理，并走通 `llmgui serve` OpenAI API；此外完成真实 CPU LoRA/QLoRA 4-bit 训练、PEFT 原生 merge、GGUF 转换/量化，并用微调后的 GGUF 在 WSL 中推理。in-process FFI 仍需在 Linux/新工具链上修复。
 
@@ -596,7 +596,7 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 
 - 当前阶段：P3 进行中（Rust 运行时 + 真实 upstream 推理 + Python 训练包 + Web GUI 可运行；in-process FFI 仍受 Windows 环境阻塞）。
 - 已完成：需求卡片 0001；三份调研；ADR 模板/索引；Rust workspace（11 crate）；ModelScope/HF 下载器；GGUF 解析/显存预估；OpenAI 兼容服务/CLI/bench；`upstream` 后端；Python 训练 worker；Web GUI；Makefile/CI/文档门禁。
-- 已验证：`cargo test --workspace` 全绿；Python 201 tests / 92.91%；`cargo clippy -D warnings` 通过；`make check-docs` 通过；ModelScope 下载 Qwen2.5-0.5B-GGUF 并 SHA256 校验；`llmgui serve --backend mock` + SSE + GUI 冒烟通过；WSL `llama-server` 提供 Qwen2.5-0.5B，`llmgui run --backend upstream` 与 `llmgui serve --backend upstream` 均返回真实模型输出（137.5 tok/s，CPU）。
+- 已验证：`cargo test --workspace` 全绿；Python 201 tests / 92.91%；`cargo clippy -D warnings` 通过；`make check-docs` 通过；ModelScope 下载 Qwen2.5-0.5B-GGUF 并 SHA256 校验；`llmgui serve --backend mock` + SSE + GUI 冒烟通过；WSL `llama-server` 提供 Qwen2.5-0.5B，`llmgui run/serve --backend upstream` 返回真实模型输出（单流约 140 tok/s，4 并发聚合 288 tok/s，CPU）；`--start-wsl` 可一条命令检测/拉起 WSL server。
 - 下一步（按优先级）：
   1. 在 WSL/Linux 上跑通或修复 in-process FFI；`upstream` 后端已可作 Windows 保底路径；
   2. 实现 P1 的 prefix cache（seq state 快照/恢复）与逐步 batch 拼装，补 4 并发性能门槛；

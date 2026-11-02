@@ -58,6 +58,15 @@ enum Commands {
         api_key: Option<String>,
         #[arg(long)]
         gui_dir: Option<PathBuf>,
+        /// Start a WSL llama-server for the `upstream` backend if not running.
+        #[arg(long)]
+        start_wsl: bool,
+        #[arg(long, default_value = "Ubuntu-24.04-Dev")]
+        wsl_distro: String,
+        #[arg(long, default_value = "/tmp/llama.cpp/build/bin/llama-server")]
+        wsl_server: String,
+        #[arg(long, default_value_t = 18080)]
+        wsl_port: u16,
     },
     /// Run one prompt and print the response.
     Run {
@@ -138,9 +147,14 @@ async fn dispatch() -> Result<()> {
             slots,
             api_key,
             gui_dir,
+            start_wsl,
+            wsl_distro,
+            wsl_server,
+            wsl_port,
         } => {
             serve(
-                config, model, backend, host, port, ctx, slots, api_key, gui_dir,
+                config, model, backend, host, port, ctx, slots, api_key, gui_dir, start_wsl,
+                wsl_distro, wsl_server, wsl_port,
             )
             .await
         }
@@ -278,6 +292,86 @@ fn load_config_for_serve(
     config
 }
 
+/// Ensure a WSL `llama-server` is healthy on `port`, starting it if necessary.
+async fn ensure_wsl_server(
+    model: &std::path::Path,
+    distro: &str,
+    server: &str,
+    port: u16,
+    ctx: u32,
+) -> Result<String> {
+    use std::process::Command;
+    let url = format!("http://127.0.0.1:{port}");
+    if ureq::get(&format!("{url}/health")).call().is_ok() {
+        return Ok(url);
+    }
+    let converted = Command::new("wsl")
+        .args(["-d", distro, "--", "wslpath", "-a"])
+        .arg(model)
+        .output()
+        .map_err(|e| LlmguiError::Config(format!("wslpath: {e}")))?;
+    if !converted.status.success() {
+        return Err(LlmguiError::Config(format!(
+            "wslpath failed: {}",
+            String::from_utf8_lossy(&converted.stderr)
+        )));
+    }
+    let model_wsl = String::from_utf8_lossy(&converted.stdout)
+        .trim()
+        .to_string();
+    if model_wsl.is_empty() {
+        return Err(LlmguiError::Config(
+            "wslpath returned an empty model path".to_string(),
+        ));
+    }
+    let log_dir = llmgui_core::paths::llmgui_home().join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+    let log_path = log_dir.join(format!("wsl-llama-server-{port}.log"));
+    let log_file = std::fs::File::create(&log_path)?;
+    let stderr_file = log_file.try_clone()?;
+    let mut child = Command::new("wsl")
+        .args(["-d", distro, "--", "setsid", "nohup", server])
+        .arg("-m")
+        .arg(&model_wsl)
+        .args([
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "-c",
+            &ctx.to_string(),
+            "-t",
+            "8",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(log_file))
+        .stderr(std::process::Stdio::from(stderr_file))
+        .spawn()
+        .map_err(|e| LlmguiError::Config(format!("start wsl llama-server: {e}")))?;
+    eprintln!(
+        "starting WSL llama-server (wsl pid {}), log {}",
+        child.id(),
+        log_path.display()
+    );
+    for _ in 0..120 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if ureq::get(&format!("{url}/health")).call().is_ok() {
+            return Ok(url);
+        }
+        if let Ok(Some(_)) = child.try_wait() {
+            // `setsid` normally detaches; if wsl itself exited, keep polling:
+            // the Linux server may still be loading the model.
+        }
+    }
+    let _ = child.kill();
+    let log_text = std::fs::read_to_string(&log_path).unwrap_or_default();
+    Err(LlmguiError::Backend(format!(
+        "WSL llama-server did not become healthy on {url}; log {}: {}",
+        log_path.display(),
+        log_text.chars().take(800).collect::<String>()
+    )))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn serve(
     config: AppConfig,
@@ -289,9 +383,34 @@ async fn serve(
     slots: Option<usize>,
     api_key: Option<String>,
     gui_dir: Option<PathBuf>,
+    start_wsl: bool,
+    wsl_distro: String,
+    wsl_server: String,
+    wsl_port: u16,
 ) -> Result<()> {
     let config = load_config_for_serve(config, ctx, slots, host, port, api_key);
     config.validate_bind()?;
+    if start_wsl {
+        if backend != "upstream" && backend != "llama-server" {
+            return Err(LlmguiError::Config(
+                "--start-wsl requires --backend upstream".to_string(),
+            ));
+        }
+        let model_path = model.as_ref().ok_or_else(|| {
+            LlmguiError::Config("--start-wsl requires --model <gguf>".to_string())
+        })?;
+        let url = ensure_wsl_server(
+            model_path,
+            &wsl_distro,
+            &wsl_server,
+            wsl_port,
+            config.model.ctx,
+        )
+        .await?;
+        // SAFETY: called during single-threaded CLI startup, before serving.
+        unsafe { std::env::set_var("LLMGUI_UPSTREAM_URL", &url) };
+        eprintln!("upstream ready at {url}");
+    }
     let backend_impl = make_backend(&backend)?;
     let model_id = model
         .as_ref()

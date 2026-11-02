@@ -66,6 +66,14 @@ cargo run -p llmgui-cli -- serve --backend upstream --port 11435
 cargo run -p llmgui-cli -- run --backend upstream "你好" --max-tokens 64
 ```
 
+也可以一条命令自动拉起 WSL server（需要 WSL 中已构建 `/tmp/llama.cpp/build/bin/llama-server`）：
+
+```powershell
+cargo run -p llmgui-cli -- serve --backend upstream --start-wsl `
+  --model C:/Users/me/llmgui-home/jobs/merged-q4km.gguf `
+  --wsl-port 18080 --port 11435
+```
+
 ### 方式 B：in-process llama.cpp（Linux/修复后 Windows）
 
 ```powershell
