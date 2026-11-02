@@ -27,6 +27,13 @@
 - Python 训练包：配置、数据（Alpaca/ShareGPT/OpenAI messages）、assistant mask、packing、
   显存估算、PEFT adapter/GGUF 导出封装、stdio NDJSON JSON-RPC worker、QLoRA lazy 训练器；
   200+ 个测试、>92% 覆盖率。
+- Tauri 2 桌面壳 `crates/llmgui-desktop`：拉起 `llmgui serve`（或 `--no-spawn` 附加已运行服务），
+  等 `/healthz` 后就绪再把窗口指到运行时源站，复用 `gui/` 零构建页面（UI 只一份，不重复实现
+  业务逻辑）；`--` 之后的参数原样透传给 `llmgui`（如 7B/upstream），退出时回收子进程。系统依赖（webkit2gtk 4.1）
+  与三条启动方式写入 README。
+- 桌面壳端到端验收 `--selftest`：在真实 WebView 中驱动真实 UI（切页 → 输入 → 发送 → 等 SSE
+  结束 → 回读模型名 / TTFT / tok/s / 无错误气泡），结果经 loopback POST 回收并以退出码判定；
+  7B 实测（merged-7b-q4km + WSL CPU llama-server）`ok: true`，TTFT 384 ms、14.2 tok/s；mock 冒烟同绿。
 - 打包入口：根 `pyproject.toml` 统一声明 Python 分发包（hatchling）与命令入口
   `llmgui-train`、`llmgui-train-worker`；仓库根 `pip install -e ".[cuda]"` 后即可直接调用，
   不再需要 `python -m llmgui_train.cli`。

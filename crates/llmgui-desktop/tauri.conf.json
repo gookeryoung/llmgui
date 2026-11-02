@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "llmgui",
+  "version": "0.1.0",
+  "identifier": "dev.llmgui.desktop",
+  "build": {
+    "frontendDist": "../../gui"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.png"]
+  }
+}

@@ -12,6 +12,7 @@ members = [
   "crates/llmgui-server",
   "crates/llmgui-cli",
   "crates/llmgui-bench",
+  "crates/llmgui-desktop",
 ]
 
 [workspace.package]

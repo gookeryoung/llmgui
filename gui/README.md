@@ -16,6 +16,15 @@ cargo run -p llmgui-cli --features llama -- serve --model <model.gguf>
 然后打开 <http://127.0.0.1:11435/>。CLI 默认会在当前目录存在 `gui/` 时自动托管；
 也可以用 `--gui-dir gui` 或环境变量 `LLMGUI_GUI_DIR` 显式指定。
 
+桌面壳 `crates/llmgui-desktop` 复用同一份页面：它启动 `llmgui serve` 并把窗口加载到该运行时
+源站，因此无需另做打包或改动 URL。
+
+```bash
+cargo run -p llmgui-desktop -- --serve   # mock 冒烟
+LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
+  -- serve --backend upstream --model /path/to/merged-7b-q4km.gguf
+```
+
 > 不能直接双击 `index.html`：页面使用相对路径调用 `/healthz`、`/v1/models`
 > 等接口，必须通过 `llmgui serve` 打开。若页面不是由目标服务托管，可在「设置」页填写
 > API base；跨源访问还需要目标服务允许 CORS（服务端默认关闭 CORS）。

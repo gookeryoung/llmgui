@@ -14,7 +14,9 @@
   当前 Windows 环境存在运行期阻塞，见下）；`upstream` 后端可接本地 llama-server。
 - **微调**：Python worker（stdio JSON-RPC）、SFT/QLoRA trainer（lazy 依赖）、数据格式/
   assistant mask/packing、PEFT adapter 与 GGUF 导出封装。
-- **工程**：Rust workspace 11 crate、Python 201 tests、Makefile、CI、ADR 门禁。
+- **桌面壳**：`llmgui-desktop`（Tauri 2）拉起 `llmgui serve` 并复用 `gui/`；`--selftest` 在真实
+  WebView 里驱动 UI 做端到端验收（7B merged-7b-q4km 已跑通）。
+- **工程**：Rust workspace 12 crate、Python 200+ tests、Makefile、CI、ADR 门禁。
 
 ## 快速开始（mock，无需模型）
 
@@ -145,11 +147,48 @@ WSL 用户可直接运行 Linux 版 `llama-quantize`（Windows 路径通过 `/mn
 
 然后用 `llama-server` 加载该 GGUF，即可通过 upstream 后端服务。
 
+## 桌面壳（Tauri 2）
+
+`crates/llmgui-desktop` 是桌面入口：启动本地运行时（`llmgui serve`，也可 `--no-spawn` 附加到
+已运行的服务），等 `/healthz` 就绪后把窗口加载到该运行时源站，因此 `gui/` 页面里的相对
+`/v1/...` 调用不需要任何额外配置。GUI 只有一份（`gui/`），桌面壳不重复实现业务逻辑。
+
+Linux 需要 webkit2gtk 4.1 等系统库（Ubuntu 24.04）：
+
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev \
+  libayatana-appindicator3-dev librsvg2-dev
+```
+
+```powershell
+# mock 冲烟：壳自己拉起 mock 运行时
+cargo run -p llmgui-desktop
+
+# 接入真实模型：用 upstream 后端接 WSL/Linux 的 llama-server
+$env:LLMGUI_UPSTREAM_URL = "http://127.0.0.1:18080"
+cargo run -p llmgui-desktop -- -- serve --backend upstream `
+  --model C:/Users/me/llmgui-home/jobs/merged-7b-q4km.gguf
+
+# 只附加到已在运行的服务
+cargo run -p llmgui-desktop -- --no-spawn
+```
+
+`--selftest` 是端到端体验验收：壳在真实 WebView 里驱动真实 UI（切页 → 输入 → 发送 →
+等 SSE 结束 → 回读 DOM 里的模型名 / TTFT / tok/s），把结果 POST 回来并按退出码判定，
+适合当回归冲烟。7B 实测（merged-7b-q4km，WSL CPU llama-server）：
+
+```bash
+LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
+  --selftest --selftest-report /tmp/llmgui-7b.json \
+  -- serve --backend upstream --model /mnt/c/<user>/llmgui-home/jobs/merged-7b-q4km.gguf
+# => ok: true，TTFT 384 ms，14.2 tok/s，模型显示 merged-7b-q4km
+```
+
 ## 目录
 
-- `crates/`：Rust workspace（core/models/download/backend/scheduler/server/cli/bench）
+- `crates/`：Rust workspace（core/models/download/backend/scheduler/server/cli/bench/desktop）
 - `python/llmgui_train/`：Python 训练 worker（SFT/QLoRA、导出、评测）
-- `gui/`：零构建本地 Web GUI（由 `llmgui serve` 托管）
+- `gui/`：零构建本地 Web GUI（由 `llmgui serve` 托管，桌面壳 `llmgui-desktop` 复用）
 - `docs/`：ADR、需求卡片、调研
 - `models/v0.toml`：默认模型清单
 - `scripts/`：ADR/文档门禁与本地构建辅助脚本
@@ -163,6 +202,8 @@ make test           # Rust workspace + Python 单测
 make check-fast     # fmt/clippy/ruff/compileall/adr-check
 make check-docs     # 文档门禁（含 ADR 落地校验）
 make flow           # check-fast + test
+make desktop        # cargo run -p llmgui-desktop（mock 冲烟）
+make desktop-accept # 端到端验收（默认 mock；用 DESKTOP_ARGS 传 7B 参数）
 ```
 
 安装与诊断：

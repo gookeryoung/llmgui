@@ -2,7 +2,7 @@ PYTHON ?= python
 CARGO ?= cargo
 PYTEST ?= $(PYTHON) -m pytest
 
-.PHONY: build test cov check-fast check-docs adr-check gitkeep-check flow bench-runtime bench-download clean
+.PHONY: build test cov check-fast check-docs adr-check gitkeep-check flow desktop desktop-accept bench-runtime bench-download clean
 
 build:
 	$(CARGO) build --workspace
@@ -36,6 +36,12 @@ gitkeep-check:
 	$(PYTHON) scripts/gitkeep_check.py
 
 flow: check-fast test
+
+desktop:
+	$(CARGO) run -p llmgui-desktop
+
+desktop-accept:
+	$(CARGO) run -p llmgui-desktop -- --selftest $(DESKTOP_ARGS)
 
 bench-runtime:
 	$(CARGO) run -p llmgui-cli -- bench --iterations 4 --concurrency 1 --max-tokens 64

@@ -278,7 +278,7 @@ API（默认 `127.0.0.1:11435`，Bearer token）：
 
 错误统一为 OpenAI 风格 `{"error":{"message","type","code"}}`；未知字段宽松忽略，响应字段只增不改。远程绑定必须 `--allow-remote` 且配置 token，默认关闭 CORS。
 
-P2b 桌面 GUI：Tauri 2 + React/TS，页面为模型库/下载进度、聊天、训练配置与曲线、adapter 管理、基准与设置；业务逻辑只调用本地 API，不在 GUI 重复实现。
+P2b 桌面 GUI：Tauri 2 壳（`crates/llmgui-desktop`）直接托管 `gui/` 的零构建页面，页面为模型库/下载进度、聊天、训练配置、adapter 管理、基准与设置；业务逻辑只调用本地 API，不在 GUI 重复实现。壳负责拉起 `llmgui serve`、等 `/healthz` 就绪后把窗口指到运行时源站，因此相对路径 API 无需额外配置；React/TS 重写不阻塞交付，post-v1.0 按需再做。
 
 **边界与例外**：
 
@@ -443,7 +443,7 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 
 ### P2b（第 20–22 周）：GUI
 
-- Tauri 2 + React/TS MVP：模型库/下载、聊天、训练配置与曲线、Adapter、设置五页。
+- Tauri 2 壳 + `gui/` 零构建页面：模型库/下载、聊天、训练配置、Adapter、设置；壳只做进程生命周期与窗口，UI 只有一份。
 - GUI 只调用本地 API；主流程 e2e；教程与截图。
 - 退出标准：三條主流程（拉模型→聊天、训练→看曲线、加载 adapter→对话）通过验收；可滑入 P3，不阻塞 v1.0 核心。
 
@@ -587,27 +587,27 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 | P0 下载→运行 | 部分落地 | `crates/llmgui-download`、`llmgui-server`、`llmgui-cli`、`llmgui-models`、`gui/`、`llmgui-backend-upstream` | `cargo test --workspace`；mock 与 upstream 真实推理冒烟通过（WSL llama-server）；真实 GGUF 下载 + `estimate` 通过；in-process FFI 仍受环境阻塞 | feat/llmgui-p0-p3 |
 | P1 快且省 | 进行中 | `crates/llmgui-scheduler`（槽位/取消，3 个并发/取消测试）、`backend-llamacpp`（Linux 真实推理通过，exact-prefix `SeqState` 快照/恢复已验证）、`backend-upstream`（`cache_prompt` 复用 llama-server 前缀缓存） | 调度/取消测试通过；in-process prefix cache 已在 Linux/WSL 运行时验证（同 prompt 两请求，命中 1 次）；Windows FFI 仍阻塞；KV 量化门槛、4 并发压测未完成 | e027796 |
 | P2a 训练闭环 | 部分落地 | `python/llmgui_train`（config/data/estimate/export/worker/trainer）、CLI `train` 桥 | Python tests 全绿；真实 CPU LoRA 与 QLoRA 4-bit（bitsandbytes CPU）各 1 step 跑通；adapter→native merge→GGUF f16→Q4_K_M→WSL llama-server 推理闭环已验证；0.5B/7B CUDA QLoRA 4-bit 已验证（7B 5 step 约 19s）；7B adapter→merge→GGUF Q4_K_M→WSL server 已验证（12.4 tok/s CPU） | a856002 |
-| P2b GUI | 已落地 | `gui/index.html`、`styles.css`、`app.js` | 静态自检 + 无浏览器 DOM/SSE 集成测试；`llmgui serve` 托管 200 | feat/llmgui-p0-p3 |
+| P2b GUI | 已落地 | `gui/index.html`、`styles.css`、`app.js`、`crates/llmgui-desktop`（Tauri 2 壳 + `--selftest` 端到端驱动） | 静态自检 + 无浏览器 DOM/SSE 集成测试；`llmgui serve` 托管 200；桌面壳 12 个单测；真实 WebView 里 7B（merged-7b-q4km + upstream）走通「切页→输入→SSE→TTFT/tok/s 回读」，`ok: true`（TTFT 384 ms、14.2 tok/s） | 本次提交 |
 | P3 硬化与发布 | 进行中 | Makefile、CI、ADR 门禁、`--start-wsl`、`doctor`、`install.ps1`、release 工作流 | `make check-docs`/clippy 通过；4 并发 upstream 288 tok/s；doctor 通过；签名/长稳未完成 | 3f25b65 |
 
 > 真实 llama.cpp 运行：Windows 11 build 26300 + Intel Arrow Lake 上，`llama_backend_init()` 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 和预编译 llama-cli 上均触发 `STATUS_ACCESS_VIOLATION`；FFI 编译与模型下载/解析正常。已新增 `upstream` 后端，通过 WSL 中的 `llama-server` 完成真实 Qwen2.5-0.5B 推理，并走通 `llmgui serve` OpenAI API；此外完成 CPU/GPU QLoRA 4-bit 训练（含 7B CUDA）、PEFT 原生 merge、GGUF 转换/量化，并用微调后的 GGUF 在 WSL 中推理。in-process FFI 已在 Linux/WSL 验证通过（单流 87 tok/s、prefix cache 命中），Windows 仍需修复。
 
 ## 19. 交接
 
-- 当前阶段：P3/v0.1 可交付（Linux in-process + Windows upstream 真实推理；Python 训练/导出/量化闭环；GUI/打包/安装/CI 完成；发布签名与长稳为 post-v1.0）。
-- 已完成：需求卡片 0001；三份调研；ADR 模板/索引；Rust workspace（11 crate）；ModelScope/HF 下载器；GGUF 解析/显存预估；OpenAI 兼容服务/CLI/bench；`upstream` 后端；Python 训练 worker；Web GUI；Makefile/CI/文档门禁。
-- 已验证：`cargo test --workspace` 全绿；Python 201 tests / 92.91%；`cargo clippy -D warnings` 通过；`make check-docs` 通过；ModelScope 下载 Qwen2.5-0.5B-GGUF 并 SHA256 校验；`llmgui serve --backend mock` + SSE + GUI 冒烟通过；WSL `llama-server` 提供 Qwen2.5-0.5B，`llmgui run/serve --backend upstream` 返回真实模型输出（单流约 140 tok/s，4 并发聚合 288 tok/s，CPU）；`--start-wsl` 可一条命令检测/拉起 WSL server。
+- 当前阶段：P3/v0.1 可交付（Linux in-process + Windows upstream 真实推理；Python 训练/导出/量化闭环；Web GUI + Tauri 桌面壳/打包/安装/CI 完成；发布签名与长稳为 post-v1.0）。
+- 已完成：需求卡片 0001；三份调研；ADR 模板/索引；Rust workspace（12 crate）；ModelScope/HF 下载器；GGUF 解析/显存预估；OpenAI 兼容服务/CLI/bench；`upstream` 后端；Python 训练 worker；Web GUI；Tauri 2 桌面壳（启动/附加运行时 + `--selftest` 端到端验收）；Makefile/CI/文档门禁。
+- 已验证：`cargo test --workspace` 全绿（含 `llmgui-desktop` 12 个单测）；桌面壳在真实 WebView 中跑通 7B 端到端验收（merged-7b-q4km + WSL CPU llama-server：切页→输入→SSE→回读模型名/TTFT/tok/s，`ok: true`，TTFT 384 ms / 14.2 tok/s；mock 冒烟 `ok: true`）；Python 201 tests / 92.91%；`cargo clippy -D warnings` 通过；`make check-docs` 通过；ModelScope 下载 Qwen2.5-0.5B-GGUF 并 SHA256 校验；`llmgui serve --backend mock` + SSE + GUI 冒烟通过；WSL `llama-server` 提供 Qwen2.5-0.5B，`llmgui run/serve --backend upstream` 返回真实模型输出（单流约 140 tok/s，4 并发聚合 288 tok/s，CPU）；`--start-wsl` 可一条命令检测/拉起 WSL server。
 - 下一步（按优先级）：
   1. 在 WSL/Linux 上跑通或修复 in-process FFI；`upstream` 后端已可作 Windows 保底路径；
   2. 实现 P1 的 prefix cache（seq state 快照/恢复）与逐步 batch 拼装，补 4 并发性能门槛；
   3. 安装 `torch/transformers/peft/trl/bitsandbytes` 跑通 7B QLoRA 与 adapter→GGUF 全链路；
-  4. 安装脚本/release workflow 已就绪；剩余签名、Tauri 壳、崩溃恢复与性能长稳。
+  4. 安装脚本/release workflow 已就绪，Tauri 壳已交付；剩余签名、桌面壳 bundle/自动更新、崩溃恢复与性能长稳。
 - 已知坑：
   1. 仓库现有 `docs/AI_DRIVEN_DEV_FLOW.md`、`BUNDLE_BUDGET.md`、`REFACTOR_BACKLOG.md` 是 cndb 遗留，部分链接不存在；
   2. Windows 上 llama.cpp 初始化崩溃（见 §18）；mock/upstream 后端不受影响；upstream 需要用户先启动 `llama-server`（可运行在 WSL）；
   3. `llama-cpp-2` 固定为 `=0.1.159`；`llama` feature 需要 MSVC + libclang（当前用 pip `libclang` + VS2022 vcvars）；
   4. Python 真实训练依赖未安装，worker 会返回结构化 `missing_dependency`；
-  5. Tauri 壳未构建，GUI 以本地 Web 形式交付；单机训练/推理 GPU lease 仅完成设计。
+  5. 桌面壳未做 bundle（`bundle.active=false`，只验证 `cargo run` 形态），Linux 需 webkit2gtk 4.1 系统库；WSLg 下 X11 截图要 `GDK_BACKEND=x11` + 软件渲染（见 README）；GUI 仍未覆盖下载进度/adapter 管理/训练曲线；单机训练/推理 GPU lease 仅完成设计。
 
 
 ## 20. 参考
