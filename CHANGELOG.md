@@ -27,6 +27,9 @@
 - Python 训练包：配置、数据（Alpaca/ShareGPT/OpenAI messages）、assistant mask、packing、
   显存估算、PEFT adapter/GGUF 导出封装、stdio NDJSON JSON-RPC worker、QLoRA lazy 训练器；
   200+ 个测试、>92% 覆盖率。
+- GPU QLoRA 4-bit：RTX 5090 D 上跑通 0.5B 与 7B（4-bit NF4、all-linear、gradient
+  checkpointing）；7B 5 step（含加载/导出）约 19s，loss 5.08 → 3.04，manifest 记录
+  `torch 2.9.1+cu128`、`device=cuda`。
 - 端到端训练冒烟：Qwen2.5-0.5B + CPU LoRA / QLoRA 4-bit（各 1 step）经 `llmgui train` 跑通，
   生成 `adapter_model.safetensors` 与训练 manifest；修复了 worker 在 Windows 上 torch 导入
   与 stdin 读线程的死锁。
@@ -45,6 +48,6 @@
   prefix cache 命中 1 次；Windows 初始化崩溃，逐步 batch 交织未实现。
 - llama.cpp 后端在 Windows 11 + Arrow Lake 上 `llama_backend_init` 触发
   `STATUS_ACCESS_VIOLATION`（自编译/预编译/MSVC/MinGW 均复现）；Linux/WSL 与 upstream 正常。
-- Python 真实 QLoRA 4-bit 已用 bitsandbytes CPU 验证 1 step；7B/GPU 训练性能未验证；
+- QLoRA 4-bit 已在 CPU 与 CUDA（0.5B/7B）验证；多卡/长上下文吞吐未验证；
   GGUF 转换/量化与微调后 GGUF 推理已验证。
 - Tauri 桌面壳未构建，GUI 以本地 Web 形式交付；多卡、DPO、speculative、国产卡为 post-v1.0。

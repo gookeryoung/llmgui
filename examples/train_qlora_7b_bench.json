@@ -1,0 +1,18 @@
+{
+  "base_model": "C:/Users/zhou/llmgui-home/models/Qwen2.5-7B-Instruct",
+  "dataset": "train.jsonl",
+  "method": "qlora",
+  "quant_bits": 4,
+  "seq_len": 128,
+  "micro_batch": 1,
+  "grad_accum": 1,
+  "epochs": 1.0,
+  "max_steps": 5,
+  "lr": 0.0002,
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "gradient_checkpointing": true,
+  "bf16": true,
+  "output_dir": "C:/Users/zhou/llmgui-home/jobs/sft-7b-qlora-bench"
+}

@@ -99,9 +99,15 @@ pip install -e "python/llmgui_train[cuda]"  # torch/transformers/peft/trl/bnb
 cargo run -p llmgui-cli -- train --config examples/train_cpu.json
 cargo run -p llmgui-cli -- train --config examples/train_qlora_cpu.json
 
-# 7B QLoRA（需要 CUDA + bitsandbytes）
-cargo run -p llmgui-cli -- train --config examples/train.json
+# GPU QLoRA 4-bit（已在本机 RTX 5090 D 验证）
+cargo run -p llmgui-cli -- train --config examples/train_qlora_gpu.json       # 0.5B
+cargo run -p llmgui-cli -- train --config examples/train_qlora_7b_gpu.json    # 7B，1 step
+cargo run -p llmgui-cli -- train --config examples/train_qlora_7b_bench.json  # 7B，5 step 基准
 ```
+
+7B QLoRA 实测：CUDA 4-bit NF4、`all-linear`、gradient checkpointing；RTX 5090 D 上
+5 step（含加载/导出）约 **19s**，loss 5.08 → 3.04；manifest 记录 `torch 2.9.1+cu128`、
+`device=cuda`。Windows 需要 CUDA 版 torch + bitsandbytes。
 
 没有 torch 时 worker 会返回结构化 `missing_dependency`，不会静默失败。
 
