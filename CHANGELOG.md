@@ -34,6 +34,8 @@
 - 桌面壳端到端验收 `--selftest`：在真实 WebView 中驱动真实 UI（切页 → 输入 → 发送 → 等 SSE
   结束 → 回读模型名 / TTFT / tok/s / 无错误气泡），结果经 loopback POST 回收并以退出码判定；
   7B 实测（merged-7b-q4km + WSL CPU llama-server）`ok: true`，TTFT 384 ms、14.2 tok/s；mock 冒烟同绿。
+- 工程便利：`make push` 按 `git remote` 逐个远端推送当前分支（单远端失败不阻塞其余，末态
+  仍以非零退出暴露失败）；`make desktop` / `make desktop-accept` 提供桌面壳入口。
 - 打包入口：根 `pyproject.toml` 统一声明 Python 分发包（hatchling）与命令入口
   `llmgui-train`、`llmgui-train-worker`；仓库根 `pip install -e ".[cuda]"` 后即可直接调用，
   不再需要 `python -m llmgui_train.cli`。

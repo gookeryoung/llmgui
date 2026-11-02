@@ -202,6 +202,7 @@ make test           # Rust workspace + Python 单测
 make check-fast     # fmt/clippy/ruff/compileall/adr-check
 make check-docs     # 文档门禁（含 ADR 落地校验）
 make flow           # check-fast + test
+make push           # 推当前分支到所有 git remote（逐个远端，失败不阻塞其余）
 make desktop        # cargo run -p llmgui-desktop（mock 冲烟）
 make desktop-accept # 端到端验收（默认 mock；用 DESKTOP_ARGS 传 7B 参数）
 ```

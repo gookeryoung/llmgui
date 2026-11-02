@@ -1,8 +1,13 @@
 PYTHON ?= python
 CARGO ?= cargo
+GIT ?= git
 PYTEST ?= $(PYTHON) -m pytest
 
-.PHONY: build test cov check-fast check-docs adr-check gitkeep-check flow desktop desktop-accept bench-runtime bench-download clean
+# `make push` pushes the current branch to every configured remote.
+REMOTES ?= $(shell $(GIT) remote)
+BRANCH ?= $(shell $(GIT) rev-parse --abbrev-ref HEAD)
+
+.PHONY: build test cov check-fast check-docs adr-check gitkeep-check flow push desktop desktop-accept bench-runtime bench-download clean
 
 build:
 	$(CARGO) build --workspace
@@ -36,6 +41,18 @@ gitkeep-check:
 	$(PYTHON) scripts/gitkeep_check.py
 
 flow: check-fast test
+
+# Push to every remote; a failing remote does not block the others, but the
+# target still exits non-zero so the failure is visible.
+push:
+	@if [ "$(strip $(REMOTES))" = "" ]; then echo "no git remote configured"; exit 1; fi
+	@failed=0; \
+	for remote in $(REMOTES); do \
+	  echo "==> $(GIT) push $$remote $(BRANCH)"; \
+	  $(GIT) push $$remote $(BRANCH) || failed=1; \
+	done; \
+	if [ $$failed -ne 0 ]; then echo "push failed for at least one remote"; exit 1; fi; \
+	echo "pushed $(BRANCH) to: $(REMOTES)"
 
 desktop:
 	$(CARGO) run -p llmgui-desktop
