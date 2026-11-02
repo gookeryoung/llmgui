@@ -11,7 +11,7 @@
 | 编号 | 标题 | Status | 落地阶段 | 代码 | 测试 | CHANGELOG |
 |---|---|---|---|---|---|---|
 | [0001](0001-local-llm-runtime-finetune.md) | 本地大模型运行与微调框架（Rust + Python） | Accepted | P0 部分 / P1 进行中 / P2a 部分 / P2b 已落地 / P3 进行中 | `crates/`、`python/`、`gui/` | `cargo test --workspace`、`pytest python/tests` | [CHANGELOG](../../CHANGELOG.md) |
-| [0002](0002-model-management.md) | 模型管理（模型库 / 发现下载 / 运行时生命周期 / 训练产物） | Proposed | 未开始（待方案评审） | — | — | [CHANGELOG](../../CHANGELOG.md) |
+| [0002](0002-model-management.md) | 模型管理（模型库 / 发现下载 / 运行时生命周期 / 训练产物） | Accepted | P0/P1 已落地 / P2a 部分 / P2b 部分 / P3 部分 | `crates/llmgui-models`、`crates/llmgui-server`、`crates/llmgui-download`、`gui/` | `cargo test --workspace` | [CHANGELOG](../../CHANGELOG.md) |
 
 ## 关联文档
 

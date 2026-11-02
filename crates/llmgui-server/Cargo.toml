@@ -8,6 +8,9 @@ license.workspace = true
 llmgui-core = { path = "../llmgui-core" }
 llmgui-backend-api = { path = "../llmgui-backend-api" }
 llmgui-scheduler = { path = "../llmgui-scheduler" }
+llmgui-models = { path = "../llmgui-models" }
+llmgui-download = { path = "../llmgui-download" }
+toml.workspace = true
 async-stream = "0.3"
 axum.workspace = true
 futures-util.workspace = true
@@ -23,5 +26,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 llmgui-backend-mock = { path = "../llmgui-backend-mock" }
+tempfile.workspace = true
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }

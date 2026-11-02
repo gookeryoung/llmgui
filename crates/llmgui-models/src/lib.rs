@@ -1,4 +1,4 @@
-//! Minimal, dependency-free GGUF metadata reader. It only reads the header and
+//! GGUF metadata reader and the local model library (registry). It only reads the header and
 //! metadata/tensor table; tensor data stays untouched, so opening a 70B file is
 //! cheap. Malformed files fail with bounds-checked errors.
 
@@ -12,6 +12,8 @@ use llmgui_core::estimate::{
 };
 use llmgui_core::{LlmguiError, Result};
 use serde::{Deserialize, Serialize};
+
+pub mod library;
 
 pub const GGUF_MAGIC: &[u8; 4] = b"GGUF";
 

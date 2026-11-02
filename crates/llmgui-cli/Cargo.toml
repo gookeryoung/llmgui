@@ -24,6 +24,10 @@ llmgui-scheduler = { path = "../llmgui-scheduler" }
 llmgui-server = { path = "../llmgui-server" }
 llmgui-bench = { path = "../llmgui-bench" }
 clap.workspace = true
+sha2.workspace = true
+hex.workspace = true
+toml.workspace = true
+tempfile.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

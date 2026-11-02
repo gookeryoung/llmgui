@@ -25,6 +25,38 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum ModelsCommand {
+    /// List installed models.
+    List,
+    /// Show one model's details.
+    Show { id: String },
+    /// Rescan the model directories and update the registry.
+    Scan,
+    /// Import a GGUF file or directory (optionally as a derived model).
+    Import {
+        path: PathBuf,
+        #[arg(long)]
+        base_id: Option<String>,
+        #[arg(long)]
+        adapter_id: Option<String>,
+    },
+    /// Remove a model from the library.
+    Remove {
+        id: String,
+        /// Also delete unreferenced CAS blobs.
+        #[arg(long)]
+        purge: bool,
+    },
+    /// Verify recorded SHA256 hashes.
+    Verify { id: Option<String> },
+    /// Search the curated catalog.
+    Search {
+        #[arg(default_value = "")]
+        query: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum Commands {
     /// Download a model from a domestic source (ModelScope first).
     Pull {
@@ -38,8 +70,38 @@ enum Commands {
         #[arg(long)]
         cache_dir: Option<PathBuf>,
     },
-    /// List locally available models.
+    /// List locally available models (legacy alias for `models list`).
     List,
+    /// Manage the local model library.
+    Models {
+        #[command(subcommand)]
+        command: ModelsCommand,
+        /// Print machine-readable JSON.
+        #[arg(long, global = true)]
+        json: bool,
+    },
+    /// Load an installed model through a running server.
+    Load {
+        model: String,
+        #[arg(long)]
+        ctx: Option<u32>,
+        #[arg(long)]
+        kv: Option<String>,
+        #[arg(long)]
+        slots: Option<usize>,
+        #[arg(long)]
+        ttl: Option<u64>,
+        #[arg(long)]
+        alias: Option<String>,
+    },
+    /// Unload the current model (or all).
+    Unload {
+        #[arg(long)]
+        all: bool,
+        model: Option<String>,
+    },
+    /// Show models loaded in the running server.
+    Ps,
     /// Start the OpenAI-compatible server.
     Serve {
         #[arg(long)]
@@ -140,6 +202,35 @@ async fn dispatch() -> Result<()> {
             cache_dir,
         } => pull(&config, &repo, &revision, &source, file, cache_dir).await,
         Commands::List => list_models(),
+        Commands::Models { command, json } => models_command(&config, command, json).await,
+        Commands::Load {
+            model,
+            ctx,
+            kv,
+            slots,
+            ttl,
+            alias,
+        } => admin_json(
+            &config,
+            "POST",
+            &format!("/admin/models/{model}/load"),
+            Some(serde_json::json!({
+                "ctx": ctx, "kv": kv, "slots": slots, "ttl_secs": ttl, "alias": alias
+            })),
+        ),
+        Commands::Unload { all, model } => {
+            if all || model.is_none() {
+                admin_json(&config, "POST", "/admin/models/unload", None)
+            } else {
+                admin_json(
+                    &config,
+                    "POST",
+                    &format!("/admin/models/{}/unload", model.unwrap_or_default()),
+                    None,
+                )
+            }
+        }
+        Commands::Ps => admin_json(&config, "GET", "/admin/models/loaded", None),
         Commands::Serve {
             model,
             backend,
@@ -236,6 +327,7 @@ async fn pull(
     let options = llmgui_download::DownloadOptions {
         revision: revision.to_string(),
         file,
+        files: Vec::new(),
         concurrency: config.download.concurrency,
         chunk_size: config.download.chunk_size_mb * 1024 * 1024,
         cache_dir: cache_dir.or_else(|| config.download.cache_dir.clone()),
@@ -267,33 +359,284 @@ async fn pull(
         manifest.files.len(),
         human_bytes(manifest.total_size())
     );
+    let library = llmgui_server::library::LibraryState::from_env(&config.model.extra_dirs);
+    match library.refresh() {
+        Ok((_, report)) => {
+            eprintln!(
+                "registered model library (+{} ~{})",
+                report.added, report.updated
+            );
+        }
+        Err(error) => eprintln!("warning: downloaded but library refresh failed: {error}"),
+    }
     Ok(())
 }
 
 fn list_models() -> Result<()> {
-    let dir = paths::models_dir();
-    std::fs::create_dir_all(&dir)?;
-    let mut found = false;
-    for entry in std::fs::read_dir(&dir)? {
-        let entry = entry?;
-        let path = entry.path().join("manifest.json");
-        if path.exists()
-            && let Ok(manifest) = llmgui_core::manifest::ModelManifest::load(&path)
-        {
-            found = true;
-            println!(
-                "{:<40} {:<12} {:<10} {}",
-                manifest.id,
-                manifest.quant.kind,
-                human_bytes(manifest.total_size()),
-                entry.path().display()
-            );
-        }
+    let config = AppConfig::load(&paths::config_path()).unwrap_or_default();
+    let library = llmgui_server::library::LibraryState::from_env(&config.model.extra_dirs);
+    let registry = library.registry()?;
+    if registry.models.is_empty() {
+        println!(
+            "no models installed under {}",
+            paths::models_dir().display()
+        );
+        return Ok(());
     }
-    if !found {
-        println!("no models installed under {}", dir.display());
+    for model in &registry.models {
+        let alias = registry
+            .prefs(&model.id)
+            .alias
+            .map(|alias| format!(" ({alias})"))
+            .unwrap_or_default();
+        println!(
+            "{:<40} {:<12} {:<10} {}{}",
+            model.id,
+            model.quant,
+            human_bytes(model.size_bytes),
+            model.path.display(),
+            alias
+        );
     }
     Ok(())
+}
+
+async fn models_command(config: &AppConfig, command: ModelsCommand, json: bool) -> Result<()> {
+    let library = llmgui_server::library::LibraryState::from_env(&config.model.extra_dirs);
+    match command {
+        ModelsCommand::List => {
+            let registry = library.registry()?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&registry)?);
+            } else {
+                for model in &registry.models {
+                    let loaded = "";
+                    println!(
+                        "{:<44} {:<10} {:<10} {}{}",
+                        model.id,
+                        model.quant,
+                        human_bytes(model.size_bytes),
+                        if model.fit_32gb { "32G" } else { "-" },
+                        loaded
+                    );
+                }
+            }
+            Ok(())
+        }
+        ModelsCommand::Show { id } => {
+            let registry = library.registry()?;
+            let model = registry
+                .models
+                .iter()
+                .find(|model| model.id == id)
+                .or_else(|| registry.get(&id))
+                .ok_or_else(|| LlmguiError::NotFound(format!("model {id}")))?;
+            let mut value = serde_json::to_value(model)?;
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "alias".into(),
+                    serde_json::json!(registry.prefs(&model.id).alias),
+                );
+                object.insert(
+                    "load_defaults".into(),
+                    serde_json::json!(registry.prefs(&model.id).load_defaults),
+                );
+                object.insert(
+                    "fit_matrix".into(),
+                    serde_json::json!(
+                        llmgui_models::library::fit_matrix(model).unwrap_or_default()
+                    ),
+                );
+            }
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            Ok(())
+        }
+        ModelsCommand::Scan => {
+            let (registry, report) = library.refresh()?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "scan complete: +{} ~{} ={} ({} models)",
+                    report.added,
+                    report.updated,
+                    report.skipped,
+                    registry.models.len()
+                );
+            }
+            Ok(())
+        }
+        ModelsCommand::Import {
+            path,
+            base_id,
+            adapter_id,
+        } => {
+            let entry = if base_id.is_some() || adapter_id.is_some() {
+                library.register_derived(&path, base_id.as_deref(), adapter_id.as_deref())?
+            } else {
+                library.import(&path)?
+            };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&entry)?);
+            } else {
+                println!("imported {} -> {}", entry.path.display(), entry.id);
+            }
+            Ok(())
+        }
+        ModelsCommand::Remove { id, purge } => {
+            let removal = library.remove(&id, purge)?;
+            println!(
+                "removed {}{}",
+                removal.entry.id,
+                if removal.files_removed {
+                    " (files deleted)"
+                } else {
+                    ""
+                }
+            );
+            Ok(())
+        }
+        ModelsCommand::Verify { id } => {
+            let registry = library.registry()?;
+            let targets: Vec<_> = registry
+                .models
+                .iter()
+                .filter(|model| id.as_deref().is_none_or(|id| model.id == id))
+                .cloned()
+                .collect();
+            if targets.is_empty() {
+                return Err(LlmguiError::NotFound("no matching models".to_string()));
+            }
+            let mut failed = 0;
+            for model in targets {
+                for file in &model.files {
+                    let Some(expected) = file.sha256.as_deref().filter(|hash| !hash.is_empty())
+                    else {
+                        continue;
+                    };
+                    let path = model.path.join(&file.path);
+                    let actual = sha256_file(&path)?;
+                    if actual == expected {
+                        println!("ok   {} {}", model.id, file.path);
+                    } else {
+                        failed += 1;
+                        println!(
+                            "FAIL {} {} (expected {expected}, got {actual})",
+                            model.id, file.path
+                        );
+                    }
+                }
+            }
+            if failed > 0 {
+                return Err(LlmguiError::Checksum {
+                    path: "models".to_string(),
+                    expected: "all hashes match".to_string(),
+                    actual: format!("{failed} mismatch(es)"),
+                });
+            }
+            Ok(())
+        }
+        ModelsCommand::Search { query } => {
+            #[derive(serde::Deserialize, serde::Serialize)]
+            struct Seed {
+                #[serde(default)]
+                models: Vec<SeedModel>,
+            }
+            #[derive(serde::Deserialize, serde::Serialize)]
+            struct SeedModel {
+                id: String,
+                repo: String,
+                #[serde(default)]
+                quant: String,
+                #[serde(default)]
+                license: String,
+                #[serde(default)]
+                size_bytes: u64,
+                #[serde(default)]
+                role: String,
+            }
+            let seed: Seed = toml::from_str(include_str!("../../../models/v0.toml"))
+                .unwrap_or(Seed { models: vec![] });
+            let needle = query.to_lowercase();
+            for model in seed.models.into_iter().filter(|model| {
+                needle.is_empty()
+                    || format!("{} {} {} {}", model.id, model.repo, model.quant, model.role)
+                        .to_lowercase()
+                        .contains(&needle)
+            }) {
+                println!(
+                    "{:<32} {:<46} {:<10} {:<12} {}",
+                    model.id,
+                    model.repo,
+                    model.quant,
+                    human_bytes(model.size_bytes),
+                    model.license
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn sha256_file(path: &std::path::Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+fn api_base(config: &AppConfig) -> String {
+    std::env::var("LLMGUI_API_BASE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("http://{}:{}", config.server.host, config.server.port))
+}
+
+fn admin_json(
+    config: &AppConfig,
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<()> {
+    let url = format!("{}{}", api_base(config).trim_end_matches('/'), path);
+    let mut request = ureq::request(method, &url);
+    if let Some(key) = config.server.api_key.as_deref() {
+        request = request.set("Authorization", &format!("Bearer {key}"));
+    }
+    let response = match body {
+        Some(body) => request.send_json(body),
+        None => request.call(),
+    };
+    match response {
+        Ok(response) => {
+            let text = response.into_string().unwrap_or_default();
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                println!("{text}");
+            }
+            Ok(())
+        }
+        Err(ureq::Error::Status(code, response)) => {
+            let detail = response.into_string().unwrap_or_default();
+            Err(LlmguiError::Backend(format!(
+                "server returned {code}: {detail}"
+            )))
+        }
+        Err(error) => Err(LlmguiError::Backend(format!(
+            "cannot reach {}: {error}; start `llmgui serve` first",
+            api_base(config)
+        ))),
+    }
 }
 
 fn make_backend(backend: &str) -> Result<Arc<dyn Backend>> {
@@ -485,7 +828,20 @@ async fn serve(
             candidate.exists().then_some(candidate)
         })
         .or_else(|| config.server.gui_dir.clone());
-    let state = llmgui_server::app_state(backend_impl, config, model_id);
+    let state = llmgui_server::app_state(backend_impl, config.clone(), model_id.clone());
+    if let Some(path) = &model {
+        let defaults = llmgui_models::library::LoadDefaults {
+            ctx: config.model.ctx,
+            kv: config.model.kv_type.clone(),
+            gpu_layers: config.model.gpu_layers,
+            slots: config.server.max_concurrent,
+            ttl_secs: config.model.idle_ttl_secs,
+        };
+        state
+            .runtime
+            .adopt_loaded(model_id.clone(), model_id.clone(), path.clone(), &defaults)
+            .await;
+    }
     llmgui_server::serve(state, gui).await
 }
 

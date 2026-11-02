@@ -23,8 +23,14 @@ use llmgui_core::api::{
     CompletionResponse, ModelList, ModelObject, OpenAiErrorBody, OpenAiErrorDetail, Usage,
 };
 use llmgui_core::config::AppConfig;
+use llmgui_core::paths;
 use llmgui_core::{LlmguiError, Result, now_unix};
 use llmgui_scheduler::Scheduler;
+
+pub mod admin;
+pub mod downloads;
+pub mod library;
+pub mod runtime;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -40,6 +46,9 @@ pub struct AppState {
     pub backend_name: String,
     pub started: Instant,
     pub metrics: Arc<Metrics>,
+    pub library: Arc<library::LibraryState>,
+    pub runtime: Arc<runtime::Runtime>,
+    pub downloads: Arc<downloads::DownloadManager>,
 }
 
 #[derive(Default)]
@@ -57,6 +66,8 @@ struct Health {
     version: &'static str,
     backend: String,
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    loaded: Option<String>,
     uptime_secs: u64,
     slots_available: usize,
 }
@@ -68,6 +79,7 @@ pub fn router(state: AppState, gui_dir: Option<PathBuf>) -> Router {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/completions", post(completions))
         .route("/metrics", get(metrics))
+        .merge(admin::routes())
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -86,6 +98,17 @@ pub async fn serve(state: AppState, gui_dir: Option<PathBuf>) -> Result<()> {
         .await
         .map_err(|e| LlmguiError::Config(format!("bind {addr}: {e}")))?;
     tracing::info!(address = %addr, "llmgui server listening");
+    let idle_state = state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            match idle_state.runtime.maybe_unload_idle().await {
+                Ok(Some(id)) => tracing::info!(model = %id, "unloaded idle model (TTL)"),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "idle unload failed"),
+            }
+        }
+    });
     axum::serve(listener, router(state, gui_dir))
         .await
         .map_err(|e| LlmguiError::Backend(format!("server error: {e}")))?;
@@ -126,21 +149,28 @@ async fn auth_middleware(
 }
 
 async fn health(State(state): State<AppState>) -> Json<Health> {
+    let loaded = state.runtime.loaded_id().await;
     Json(Health {
         status: "ok",
         version: llmgui_core::VERSION,
         backend: state.backend_name.clone(),
-        model: state.model_id.clone(),
+        model: loaded.clone().unwrap_or_else(|| state.model_id.clone()),
+        loaded,
         uptime_secs: state.started.elapsed().as_secs(),
         slots_available: state.scheduler.available_slots(),
     })
 }
 
 async fn list_models(State(state): State<AppState>) -> Json<ModelList> {
+    let loaded = state.runtime.loaded().await;
+    let id = loaded
+        .as_ref()
+        .map(|model| model.id.clone())
+        .unwrap_or_else(|| state.model_id.clone());
     Json(ModelList {
         object: "list".to_string(),
         data: vec![ModelObject {
-            id: state.model_id.clone(),
+            id,
             object: "model".to_string(),
             created: now_unix(),
             owned_by: "llmgui".to_string(),
@@ -243,6 +273,54 @@ async fn completions(
     .await
 }
 
+async fn resolve_model(
+    state: &AppState,
+    requested: &str,
+) -> Result<Option<Arc<runtime::LoadedModel>>> {
+    let requested = requested.trim();
+    let registry = state.library.registry()?;
+    let loaded = state.runtime.loaded().await;
+    if let Some(loaded) = &loaded {
+        let alias_matches = registry.alias_of(&loaded.id).as_deref() == Some(requested);
+        if requested.is_empty() || requested == "default" || requested == loaded.id || alias_matches
+        {
+            loaded.touch();
+            return Ok(Some(loaded.clone()));
+        }
+    }
+    match registry.resolve(requested) {
+        llmgui_models::library::Resolve::One(id) => {
+            let entry = registry
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| LlmguiError::NotFound(format!("model {id}")))?;
+            let defaults = registry.prefs(&id).load_defaults;
+            let loaded = state
+                .runtime
+                .ensure_loaded(&entry, defaults, state.runtime.vram_budget_bytes())
+                .await?;
+            Ok(Some(loaded))
+        }
+        llmgui_models::library::Resolve::Ambiguous(matches) => Err(LlmguiError::Conflict(format!(
+            "model name is ambiguous: {}",
+            matches.join(", ")
+        ))),
+        llmgui_models::library::Resolve::None => {
+            if loaded.is_none()
+                && (requested.is_empty()
+                    || requested == "default"
+                    || requested == state.model_id
+                    || state.backend_name == "mock"
+                    || state.backend_name == "upstream")
+            {
+                Ok(None)
+            } else {
+                Err(LlmguiError::NotFound(format!("model {requested}")))
+            }
+        }
+    }
+}
+
 async fn stream_or_collect(
     state: AppState,
     request: GenerateRequest,
@@ -251,11 +329,29 @@ async fn stream_or_collect(
     stream: bool,
     chat: bool,
 ) -> Response {
+    let resolved = match resolve_model(&state, &model).await {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            state.metrics.errors.fetch_add(1, Ordering::Relaxed);
+            return ApiError(error).into_response();
+        }
+    };
+    let model = resolved
+        .as_ref()
+        .map(|loaded| loaded.id.clone())
+        .unwrap_or(model);
+    let guard = match state.runtime.begin_request() {
+        Ok(guard) => guard,
+        Err(error) => {
+            state.metrics.errors.fetch_add(1, Ordering::Relaxed);
+            return ApiError(error).into_response();
+        }
+    };
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut rx = state.scheduler.enqueue(request, cancel);
     if stream {
         let metrics = state.metrics.clone();
-        let body = sse_stream(rx, model, request_id, chat, metrics);
+        let body = sse_stream(rx, model, request_id, chat, metrics, guard);
         Sse::new(body)
             .keep_alive(KeepAlive::default())
             .into_response()
@@ -273,6 +369,7 @@ async fn stream_or_collect(
                 }
             }
         }
+        drop(guard);
         if let Some(error) = error {
             state.metrics.errors.fetch_add(1, Ordering::Relaxed);
             return ApiError(error).into_response();
@@ -344,6 +441,7 @@ fn sse_stream(
     request_id: String,
     chat: bool,
     metrics: Arc<Metrics>,
+    _guard: runtime::RequestGuard,
 ) -> impl Stream<Item = std::result::Result<Event, Infallible>> {
     async_stream::stream! {
         let created = now_unix();
@@ -445,6 +543,8 @@ impl IntoResponse for ApiError {
         let status = match &self.0 {
             LlmguiError::NotFound(_) => StatusCode::NOT_FOUND,
             LlmguiError::Config(_) => StatusCode::BAD_REQUEST,
+            LlmguiError::Conflict(_) | LlmguiError::InsufficientMemory(_) => StatusCode::CONFLICT,
+            LlmguiError::Busy(_) => StatusCode::SERVICE_UNAVAILABLE,
             LlmguiError::Unsupported(_) => StatusCode::NOT_IMPLEMENTED,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -467,13 +567,24 @@ pub fn app_state(
 ) -> AppState {
     let backend_name = backend.info().name;
     let slots = config.server.max_concurrent;
+    let config = Arc::new(config);
+    let library = Arc::new(library::LibraryState::from_env(&config.model.extra_dirs));
+    let downloads = Arc::new(downloads::DownloadManager::new(
+        paths::llmgui_home(),
+        library.clone(),
+        config.clone(),
+    ));
+    let runtime = Arc::new(runtime::Runtime::new(backend.clone(), backend_name.clone()));
     AppState {
-        config: Arc::new(config),
+        config,
         scheduler: Arc::new(Scheduler::new(backend, slots)),
         model_id: model_id.into(),
         backend_name,
         started: Instant::now(),
         metrics: Arc::new(Metrics::default()),
+        library,
+        runtime,
+        downloads,
     }
 }
 

@@ -62,7 +62,7 @@
       <section class="view" id="view-models" aria-labelledby="models-title">
         <header class="view__head">
           <h1 id="models-title">模型 Models</h1>
-          <p class="lead">内置默认清单来自 <code>models/v0.toml</code>，离线展示；以下命令请在项目根目录执行。30GB 级显存（RTX 5090 D 32GB）优先选 14B / 32B Q4_K_M。</p>
+          <p class="lead">模型库来自本机注册表（可由 manifest 重建）；「发现」按量化与显存选型下载；「下载」管理队列与磁盘。30GB 级显存（RTX 5090 D 32GB）优先 14B / 32B Q4_K_M。</p>
         </header>
 
         <section class="panel" aria-labelledby="server-models-title">
@@ -74,37 +74,82 @@
           <ul class="chip-list" id="models-server-list"></ul>
         </section>
 
-        <h2 class="section-title">内置默认模型</h2>
-        <div class="model-toolbar">
-          <label class="model-toolbar__search" for="model-search">
-            <span class="sr-only">搜索模型</span>
-            <input
-              type="search"
-              id="model-search"
-              placeholder="搜索模型 / 仓库 / 用途…"
-              autocomplete="off"
-              spellcheck="false"
-            >
-          </label>
-          <div
-            class="model-toolbar__filters"
-            id="model-filters"
-            role="group"
-            aria-label="按用途与显存筛选模型"
-          ></div>
-          <label class="field field--inline model-toolbar__sort" for="model-sort">
-            <span>排序</span>
-            <select id="model-sort">
-              <option value="recommended">推荐顺序</option>
-              <option value="size-desc">体积从大到小</option>
-              <option value="size-asc">体积从小到大</option>
-            </select>
-          </label>
+        <div class="model-tabs" role="tablist" aria-label="模型视图">
+          <button type="button" class="model-tab is-active" data-mtab="library" role="tab" aria-selected="true">模型库</button>
+          <button type="button" class="model-tab" data-mtab="discover" role="tab" aria-selected="false">发现</button>
+          <button type="button" class="model-tab" data-mtab="downloads" role="tab" aria-selected="false">下载</button>
+          <span class="model-tabs__spacer"></span>
+          <button type="button" class="btn btn--ghost btn--sm" id="library-scan">扫描目录</button>
         </div>
-        <p class="hint" id="model-count" role="status" aria-live="polite"></p>
-        <div class="model-grid" id="model-grid"></div>
-        <p class="model-empty" id="model-empty" hidden>没有匹配的模型，试试更换关键词或筛选条件。</p>
 
+        <section id="model-tab-library" role="tabpanel" aria-label="模型库">
+          <div class="model-toolbar">
+            <label class="model-toolbar__search" for="model-search">
+              <span class="sr-only">搜索模型</span>
+              <input type="search" id="model-search" placeholder="搜索已安装模型 / 仓库 / 量化…" autocomplete="off" spellcheck="false">
+            </label>
+            <div class="model-toolbar__filters" id="model-filters" role="group" aria-label="按显存与类型筛选模型"></div>
+            <label class="field field--inline model-toolbar__sort" for="model-sort">
+              <span>排序</span>
+              <select id="model-sort">
+                <option value="name">名称</option>
+                <option value="size">体积</option>
+                <option value="recent">最近使用</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint" id="model-count" role="status" aria-live="polite"></p>
+          <div class="model-grid" id="model-grid"></div>
+          <p class="model-empty" id="model-empty" hidden>还没有安装模型。去「发现」下载，或点「扫描目录」导入已有 GGUF。</p>
+          <section class="panel model-detail" id="model-detail" hidden aria-live="polite"></section>
+        </section>
+
+        <section id="model-tab-discover" role="tabpanel" aria-label="发现模型" hidden>
+          <div class="model-toolbar">
+            <label class="model-toolbar__search" for="catalog-search">
+              <span class="sr-only">搜索推荐模型</span>
+              <input type="search" id="catalog-search" placeholder="搜索推荐模型 / 仓库 / 用途…" autocomplete="off" spellcheck="false">
+            </label>
+            <button type="button" class="btn btn--ghost btn--sm" id="catalog-refresh">刷新推荐</button>
+          </div>
+          <div class="repo-resolve">
+            <label class="field" for="repo-input">
+              <span>仓库 ID 或 URL</span>
+              <input type="text" id="repo-input" placeholder="Qwen/Qwen3-14B-GGUF 或 https://modelscope.cn/models/..." autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field field--inline" for="repo-source">
+              <span>源</span>
+              <select id="repo-source">
+                <option value="auto">自动</option>
+                <option value="modelscope">ModelScope</option>
+                <option value="hf-mirror">hf-mirror</option>
+                <option value="gitee-ai">Gitee AI</option>
+              </select>
+            </label>
+            <button type="button" class="btn btn--primary" id="repo-resolve">解析</button>
+          </div>
+          <div id="repo-result" class="repo-result" hidden></div>
+          <h3 class="section-title">推荐模型</h3>
+          <div class="catalog-grid" id="catalog-grid"></div>
+        </section>
+
+        <section id="model-tab-downloads" role="tabpanel" aria-label="下载任务" hidden>
+          <div class="panel">
+            <div class="panel__head">
+              <h2>下载任务</h2>
+              <button type="button" class="btn btn--ghost btn--sm" id="downloads-refresh">刷新</button>
+            </div>
+            <p class="hint" id="downloads-status">暂无下载任务。</p>
+            <ul class="download-list" id="download-list"></ul>
+          </div>
+          <div class="panel">
+            <div class="panel__head">
+              <h2>磁盘与缓存</h2>
+              <button type="button" class="btn btn--ghost btn--sm" id="cache-gc">清理未引用缓存</button>
+            </div>
+            <p class="hint" id="storage-info">读取中…</p>
+          </div>
+        </section>
         <p class="hint">拉取完成后，用 <code>llmgui serve --model &lt;model.gguf&gt;</code> 启动推理服务。</p>
       </section>
 

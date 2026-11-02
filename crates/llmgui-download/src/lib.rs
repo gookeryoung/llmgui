@@ -18,6 +18,7 @@ use llmgui_core::{LlmguiError, Result};
 
 pub mod cache;
 pub mod downloader;
+pub mod gc;
 pub mod manifest;
 pub mod source;
 
@@ -39,6 +40,9 @@ pub struct DownloadOptions {
     pub revision: String,
     /// Optional single file (or shard-name fragment) to download.
     pub file: Option<String>,
+    /// Exact file list (e.g. one quantisation with multiple shards). Takes
+    /// precedence over `file` when non-empty.
+    pub files: Vec<String>,
     /// Concurrent range requests per file (`0` -> [`DEFAULT_CONCURRENCY`]).
     pub concurrency: usize,
     /// Range size in bytes (`0` -> [`DEFAULT_CHUNK_SIZE`]).
@@ -78,7 +82,7 @@ pub async fn pull_with_store(
 ) -> Result<ModelManifest> {
     let revision = source::normalize_revision(&options.revision);
     let listed = source.list(repo, &revision).await?;
-    let selected = select_files(listed, options.file.as_deref())?;
+    let selected = select_files(listed, options.file.as_deref(), &options.files)?;
     if selected.is_empty() {
         return Err(LlmguiError::NotFound(format!(
             "repository {repo}@{revision} has no downloadable files"
@@ -88,7 +92,19 @@ pub async fn pull_with_store(
         source::validate_relative_path(&file.path)?;
     }
 
-    let model_id = cache::model_id_for_repo(repo);
+    let base_id = cache::model_id_for_repo(repo);
+    // Installing a specific quantisation into its own directory keeps multiple
+    // quants of the same repo side by side instead of overwriting the manifest.
+    let model_id = if options.file.is_some() || !options.files.is_empty() {
+        let quant = manifest::infer_quant(&selected);
+        if quant.kind == "unknown" {
+            base_id
+        } else {
+            format!("{base_id}--{}", quant.kind.to_lowercase().replace('_', "-"))
+        }
+    } else {
+        base_id
+    };
     let total: u64 = selected.iter().map(|file| file.size).sum();
     report(&progress, 0, total);
 
@@ -147,7 +163,40 @@ fn report(progress: &Option<Box<dyn Fn(u64, u64) + Send + Sync>>, done: u64, tot
 
 /// Filter the repository listing down to the requested files and skip unsafe
 /// pickle-style payloads (unless explicitly requested, which is an error).
-fn select_files(files: Vec<RemoteFile>, wanted: Option<&str>) -> Result<Vec<RemoteFile>> {
+fn select_files(
+    files: Vec<RemoteFile>,
+    wanted: Option<&str>,
+    exact: &[String],
+) -> Result<Vec<RemoteFile>> {
+    if !exact.is_empty() {
+        let mut matched = Vec::new();
+        for path in exact {
+            let hit = files
+                .iter()
+                .find(|file| &file.path == path)
+                .or_else(|| {
+                    files
+                        .iter()
+                        .find(|file| file.path.rsplit('/').next() == Some(path.as_str()))
+                })
+                .ok_or_else(|| {
+                    LlmguiError::NotFound(format!("file {path:?} not found in repository listing"))
+                })?;
+            if gc::is_forbidden(&hit.path) {
+                return Err(LlmguiError::Unsupported(format!(
+                    "refusing to download unsafe file type: {}",
+                    hit.path
+                )));
+            }
+            if !matched
+                .iter()
+                .any(|file: &RemoteFile| file.path == hit.path)
+            {
+                matched.push(hit.clone());
+            }
+        }
+        return Ok(matched);
+    }
     if let Some(wanted) = wanted {
         let wanted = wanted.trim();
         if wanted.is_empty() {
@@ -219,6 +268,7 @@ mod tests {
         DownloadOptions {
             revision: "master".to_string(),
             file: None,
+            files: Vec::new(),
             concurrency: 2,
             chunk_size: 512,
             cache_dir: None,
@@ -363,6 +413,20 @@ mod tests {
                     .count()
                     == 0
         );
+    }
+
+    #[tokio::test]
+    async fn quant_specific_installs_get_their_own_id() {
+        let (_cache, _models, store) = store();
+        let data = b"weights".to_vec();
+        let source = FakeSource::new(vec![(remote("Model-Q4_K_M.gguf", &data), data.clone())]);
+        let mut opts = options();
+        opts.file = Some("Model-Q4_K_M.gguf".to_string());
+        let manifest = pull_with_store(&store, &source, "Qwen/X", &opts, None)
+            .await
+            .unwrap();
+        assert_eq!(manifest.id, "Qwen--X--q4-k-m");
+        assert!(store.model_dir(&manifest.id).unwrap().exists());
     }
 
     #[tokio::test]

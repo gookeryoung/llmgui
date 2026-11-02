@@ -22,6 +22,12 @@ pub enum LlmguiError {
     Config(String),
     #[error("not found: {0}")]
     NotFound(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
+    #[error("busy: {0}")]
+    Busy(String),
+    #[error("insufficient memory: {0}")]
+    InsufficientMemory(String),
     #[error("unsupported: {0}")]
     Unsupported(String),
     #[error("cancelled")]
@@ -48,6 +54,9 @@ impl LlmguiError {
             Self::Backend(_) => "backend_error",
             Self::Config(_) => "config_error",
             Self::NotFound(_) => "not_found",
+            Self::Conflict(_) => "conflict",
+            Self::Busy(_) => "busy",
+            Self::InsufficientMemory(_) => "insufficient_memory",
             Self::Unsupported(_) => "unsupported",
             Self::Cancelled => "cancelled",
             Self::Checksum { .. } => "checksum_mismatch",

@@ -1,6 +1,6 @@
 # ADR 0002：模型管理（模型库、发现下载、运行时生命周期、训练产物）
 
-- 状态：Proposed（待评审；评审通过后改 Accepted 才进入实现）
+- 状态：Accepted（2026-11-03 用户确认「开始到结束」，进入实现）
 - 日期：2026-11-03
 - 关联需求卡片：`docs/requirements/0003-model-management.md`
 - 关联调研：`docs/research/model-management.md`、`docs/research/download.md`、`docs/research/runtime.md`
@@ -485,24 +485,29 @@ CLI 统一 `--json` 输出 `{ok, data|error: {code, message}, generation}`；人
 
 | 期 | 状态 | 代码落点 | 测试 | 提交 |
 |---|---|---|---|---|
-| P0 | 未开始 | — | — | — |
-| P1 | 未开始 | — | — | — |
-| P2a | 未开始 | — | — | — |
-| P2b | 未开始 | — | — | — |
-| P3 | 未开始 | — | — | — |
+| P0 | 已落地 | `crates/llmgui-models/src/library.rs`（registry/scan/import/fit/preset）、`crates/llmgui-server/src/{library,admin}.rs`、`crates/llmgui-cli/src/main.rs`（`models` 子命令）、`gui/`（模型库） | `cargo test -p llmgui-models`、`cargo test -p llmgui-server`（scan/list/detail/alias/defaults/presets/descriptor）、jsdom 库冒烟 | 本次提交 |
+| P1 | 已落地 | `crates/llmgui-download/src/{lib,gc}.rs`（多文件/按量化目录）、`crates/llmgui-server/src/downloads.rs`、`admin.rs`（catalog/downloads/storage/gc）、`gui/`（发现/下载） | 下载/GC 单测、`admin::tests::invalid_source_download_fails_cleanly`、`catalog_and_storage`、jsdom 下载视图冒烟 | 本次提交 |
+| P2a | 部分落地 | `crates/llmgui-server/src/runtime.rs` + `admin.rs`（load/unload/switch/JIT/TTL/显存闸门/别名/defaults）、`llmgui-cli`（load/ps/unload）、`gui/`（加载控件/详情） | `runtime::tests::load_unload_and_ttl`、`memory_gate_rejects_oversized_model`、`admin::tests::alias_defaults_and_load`；GPU lease 尚未接入 | 本次提交 |
+| P2b | 部分落地 | `llmgui_models::library::register_derived`、`POST /admin/models/register`、`models import --base-id/--adapter-id`；adapter manifest 与训练完成自动注册未实现 | `import_and_derived_registration`、`descriptor_roundtrip` | 本次提交 |
+| P3 | 部分落地 | `GET/POST /admin/models[/{id}]/descriptor`（model.yaml 兼容 JSON 子集）、`models verify`、旧目录扫描导入；批量操作与预设导入导出未实现 | `descriptor_roundtrip`、`models verify` 手测 | 本次提交 |
 
 ## 19. 交接
 
-- 当前阶段：方案评审前（Proposed）；本轮只交付需求卡片、调研与 ADR，不进入实现。
-- 已完成：需求卡片 0003；`docs/research/model-management.md`（LM Studio / Unsloth 对照）；本 ADR 的现状核对、契约、分期与风险。
-- 下一步：人工评审（重点 D2 registry 载体、D4 单活跃模型、D6 Hub 搜索边界、D10 训练产物接入）；评审通过改 Accepted 后从 P0 开始，每期回填 §18/§19。
+- 当前阶段：P0/P1 已落地，P2a/P2b/P3 部分落地；可在本机用 mock 后端完成「扫描 → 加载 → 聊天 → 卸载 → 删除」与下载任务/GC 动作。
+- 已完成：registry（原子写/锁/重建）、扫描与导入、模型详情/fit 矩阵、别名/默认值/预设；下载任务（暂停/继续/取消/重试）、SSE 快照、存储统计与 CAS GC；运行时 load/unload/switch/JIT/TTL + 显存闸门；派生模型注册与 `model.yaml` 兼容 JSON 描述符导入导出；CLI `models/load/ps/unload`；GUI 三视图。
+- 下一步：
+  1. 接 GPU lease（训练与推理互斥、drain 后卸载、结束后 auto_reload）；
+  2. adapter registry（`adapters/<id>/manifest.json`）与训练/导出完成后的自动注册（当前需手工 `models import --base-id`）；
+  3. 下载并发去重、真正的断点暂停（当前暂停=中止后可从 `.part` 继续）、Hub 关键词搜索（当前仅种子目录 + 仓库/URL 解析）；
+  4. GUI 批量操作、预设导入导出、SSE 替代 2s 轮询；加载耗时用 5090D + NVMe 实测回填 §13；
+  5. 为 registry/下载/运行时补 Windows 文件占用与崩溃恢复的专项测试。
 - 已知坑：
-  1. `registry_path()` 已预留但全仓无调用，P0 不要在旧路径上叠第二份索引；
-  2. `Backend::unload` 已存在，但 upstream 后端的「卸载」只是状态清理，真实显存由外部 llama-server 持有，P2a 需明确提示；
-  3. CAS 目前只增不减（`crates/llmgui-download/src/cache.rs`），P1 的 GC 必须先做引用统计与 dry-run；
-  4. GUI 现有模型清单是 `gui/app.js:15` 的静态镜像，P0 切换 API 时保留离线回退，避免服务不可达时页面空白；
-  5. 训练导出链路在 Python 侧（`python/llmgui_train/src/llmgui_train/export.py`），P2b 只做注册与 lineage，不改导出算法；
-  6. 性能预算中的加载耗时是目标值，需 P2a 用 5090D + NVMe 实测后回填。
+  1. `downloads.control` 的 pause/cancel 通过丢弃 future 实现，已写 `.part` 可续传，但不会优雅关闭连接；
+  2. upstream 后端的 unload 只清本地状态，真实显存由外部 llama-server 持有；
+  3. GC 只扫描 `models/*/manifest.json` 的引用；外部目录模型没有 CAS blob，不受影响；
+  4. `model.yaml` 只支持导出的 JSON 子集（JSON 是 YAML 1.2 子集），不做完整规范解析；
+  5. 运行时为单活跃模型，切换会等待在飞请求，默认 drain 超时 30s（`LLMGUI_DRAIN_TIMEOUT_SECS`）；
+  6. 模型列表的 `fit` 是静态估算，未接 NVML 实机可用显存；预算由 `LLMGUI_VRAM_BYTES` 控制。
 
 ## 20. 参考
 

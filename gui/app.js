@@ -103,12 +103,11 @@
 
   const MODEL_FILTERS = [
     { id: 'all', label: '全部' },
-    { id: 'fit-ok', label: '32G 可跑' },
-    { id: 'fit-tight', label: '32G 紧张' },
-    { id: 'large', label: '大模型' },
-    { id: 'default', label: '默认' },
-    { id: 'smoke', label: '冒烟' },
-    { id: 'train-base', label: '训练底座' },
+    { id: 'fit32', label: '32G 可跑' },
+    { id: 'fit24', label: '24G 可跑' },
+    { id: 'loaded', label: '已加载' },
+    { id: 'inference', label: '推理' },
+    { id: 'train', label: '训练底座' },
   ];
 
   const VIEWS = ['models', 'chat', 'train', 'settings'];
@@ -143,7 +142,18 @@
     serverModels: [],
     modelFilter: 'all',
     modelQuery: '',
-    modelSort: 'recommended',
+    modelSort: 'name',
+    modelTab: 'library',
+    libraryModels: [],
+    libraryLoaded: null,
+    libraryGeneration: 0,
+    libraryError: null,
+    selectedModel: null,
+    catalog: [],
+    repoResult: null,
+    downloads: [],
+    storage: null,
+    modelTimer: null,
     trainYaml: '',
     chat: {
       history: [],
@@ -374,6 +384,28 @@
    * Models view
    * ------------------------------------------------------------------ */
 
+  function formatBytes(bytes) {
+    const value = Number(bytes) || 0;
+    if (!value) return '—';
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    let index = 0;
+    let size = value;
+    while (size >= 1024 && index < units.length - 1) {
+      size /= 1024;
+      index += 1;
+    }
+    return size.toFixed(index === 0 ? 0 : 2) + ' ' + units[index];
+  }
+
+  function formatWhen(unix) {
+    if (!unix) return '—';
+    try {
+      return new Date(unix * 1000).toLocaleString();
+    } catch (error) {
+      return '—';
+    }
+  }
+
   function copyCommandFor(model) {
     if (model.file) {
       return 'llmgui pull ' + model.repo + ' --file ' + model.file;
@@ -381,38 +413,61 @@
     return 'llmgui pull ' + model.repo;
   }
 
-  function modelMatchesFilter(model, filter) {
-    if (filter === 'all') return true;
-    if (filter === 'fit-ok') return model.fit === 'ok';
-    if (filter === 'fit-tight') return model.fit === 'tight';
-    return model.role === filter;
+  function fitBadge(entry) {
+    if (entry.fit_32gb && entry.fit_24gb) {
+      return createEl('span', 'chip chip--ok', '24G / 32G 可跑');
+    }
+    if (entry.fit_32gb) {
+      const chip = createEl('span', 'chip chip--ok', '5090D 32G 可跑');
+      chip.title = '按体积 + q8_0 KV @32k 估算可加载';
+      return chip;
+    }
+    const chip = createEl('span', 'chip chip--warn', '显存紧张');
+    chip.title = '估算超过 32GB 预算；建议降 ctx / 换量化';
+    return chip;
   }
 
-  function visibleModels() {
+  function libraryMatchesFilter(entry, filter) {
+    if (filter === 'all') return true;
+    if (filter === 'fit32') return Boolean(entry.fit_32gb);
+    if (filter === 'fit24') return Boolean(entry.fit_24gb);
+    if (filter === 'loaded') return Boolean(entry.loaded);
+    if (filter === 'train') return entry.kind === 'train';
+    if (filter === 'inference') return entry.kind !== 'train';
+    return true;
+  }
+
+  function visibleLibrary() {
     const query = state.modelQuery.trim().toLowerCase();
-    const list = DEFAULT_MODELS.filter(function (model) {
-      if (!modelMatchesFilter(model, state.modelFilter)) return false;
+    const list = state.libraryModels.filter(function (entry) {
+      if (!libraryMatchesFilter(entry, state.modelFilter)) return false;
       if (!query) return true;
       const haystack = [
-        model.name,
-        model.repo,
-        model.id,
-        model.quant,
-        model.role,
-        model.purpose,
+        entry.id,
+        entry.display_name,
+        entry.repo,
+        entry.quant,
+        entry.alias,
+        entry.license,
       ]
+        .map(function (value) {
+          return value || '';
+        })
         .join(' ')
         .toLowerCase();
       return haystack.indexOf(query) !== -1;
     });
-
-    if (state.modelSort === 'size-desc') {
+    if (state.modelSort === 'size') {
       list.sort(function (a, b) {
-        return b.sizeBytes - a.sizeBytes;
+        return (b.size_bytes || 0) - (a.size_bytes || 0);
       });
-    } else if (state.modelSort === 'size-asc') {
+    } else if (state.modelSort === 'recent') {
       list.sort(function (a, b) {
-        return a.sizeBytes - b.sizeBytes;
+        return (b.last_used || b.installed_at || 0) - (a.last_used || a.installed_at || 0);
+      });
+    } else {
+      list.sort(function (a, b) {
+        return String(a.id).localeCompare(String(b.id));
       });
     }
     return list;
@@ -422,8 +477,8 @@
     if (!dom.modelFilters) return;
     dom.modelFilters.textContent = '';
     MODEL_FILTERS.forEach(function (filter) {
-      const count = DEFAULT_MODELS.filter(function (model) {
-        return modelMatchesFilter(model, filter.id);
+      const count = state.libraryModels.filter(function (entry) {
+        return libraryMatchesFilter(entry, filter.id);
       }).length;
       const button = createEl('button', 'filter-chip', filter.label + ' ' + count);
       button.type = 'button';
@@ -442,98 +497,776 @@
     });
   }
 
-  function buildFitChip(model) {
-    if (model.fit !== 'ok' && model.fit !== 'tight') return null;
-    const ok = model.fit === 'ok';
-    const chip = createEl(
-      'span',
-      'chip ' + (ok ? 'chip--ok' : 'chip--warn'),
-      ok ? '5090D 32G 可跑' : '32G 显存紧张'
-    );
-    chip.title = ok
-      ? '按体积 + q8_0 KV @32k 估算，RTX 5090 D 32GB 可加载并留有余量'
-      : '估算接近 32GB 上限，建议降 ctx 或减少并发后加载';
-    return chip;
-  }
-
-  function buildModelCard(model) {
+  function buildLibraryCard(entry) {
     const card = createEl('article', 'model-card');
-    card.dataset.role = model.role || '';
+    card.dataset.id = entry.id;
+    card.dataset.role = entry.loaded ? 'default' : entry.derived_from ? 'large' : '';
 
     const head = createEl('div', 'model-card__head');
     const titleWrap = createEl('div', 'model-card__title-wrap');
-    titleWrap.appendChild(createEl('h3', 'model-card__title', model.name));
-    titleWrap.appendChild(createEl('p', 'model-card__repo', model.repo));
+    titleWrap.appendChild(createEl('h3', 'model-card__title', entry.display_name || entry.id));
+    const repoLine = entry.repo || entry.path || '';
+    titleWrap.appendChild(createEl('p', 'model-card__repo', repoLine));
 
     const chips = createEl('div', 'model-card__chips');
-    const fitChip = buildFitChip(model);
-    if (fitChip) chips.appendChild(fitChip);
-    chips.appendChild(
-      createEl(
-        'span',
-        'chip ' + (ROLE_TONES[model.role] || ''),
-        ROLE_LABELS[model.role] || model.role
-      )
-    );
-
+    chips.appendChild(fitBadge(entry));
+    if (entry.loaded) chips.appendChild(createEl('span', 'chip chip--accent', '已加载'));
+    if (entry.kind === 'train') chips.appendChild(createEl('span', 'chip chip--warn', '训练底座'));
+    if (entry.derived_from) chips.appendChild(createEl('span', 'chip chip--accent', '派生模型'));
     head.appendChild(titleWrap);
     head.appendChild(chips);
 
-    const purpose = createEl('p', 'model-card__purpose', model.purpose);
-
     const facts = createEl('dl', 'model-card__facts');
-    const factRows = [
-      ['量化', model.quant],
-      ['体积', model.size],
-      ['显存估算', model.vram || '训练底座，按训练配置另算'],
-      ['许可', model.license],
-    ];
-    factRows.forEach(function (pair) {
+    [
+      ['量化', entry.quant || '—'],
+      ['体积', formatBytes(entry.size_bytes)],
+      ['显存估算', entry.vram_human || '未估算'],
+      ['上下文', entry.context && entry.context.max ? String(entry.context.max) : '—'],
+    ].forEach(function (pair) {
       const row = createEl('div');
       row.appendChild(createEl('dt', '', pair[0]));
       row.appendChild(createEl('dd', '', pair[1]));
       facts.appendChild(row);
     });
 
-    const command = copyCommandFor(model);
-    const commandBox = createEl('div', 'model-card__command');
-    const commandCode = createEl('code', '', command);
-    const copyButton = createEl('button', 'btn btn--ghost btn--sm', '复制命令');
-    copyButton.type = 'button';
-    copyButton.dataset.copy = command;
-    copyButton.setAttribute('aria-label', '复制 ' + model.name + ' 的拉取命令');
-    commandBox.appendChild(commandCode);
-    commandBox.appendChild(copyButton);
+    const meta = createEl('p', 'model-card__file');
+    meta.appendChild(createEl('span', '', '别名'));
+    meta.appendChild(createEl('code', '', entry.alias || entry.id));
+    meta.appendChild(createEl('span', '', '· 许可 '));
+    meta.appendChild(createEl('span', '', entry.license || '未知'));
+
+    const actions = createEl('div', 'model-card__actions');
+    const detail = createEl('button', 'btn btn--ghost btn--sm', '详情');
+    detail.type = 'button';
+    detail.dataset.action = 'detail';
+    detail.dataset.id = entry.id;
+    actions.appendChild(detail);
+    const load = createEl('button', 'btn btn--sm ' + (entry.loaded ? 'btn--ghost' : 'btn--primary'), entry.loaded ? '卸载' : '加载');
+    load.type = 'button';
+    load.dataset.action = entry.loaded ? 'unload' : 'load';
+    load.dataset.id = entry.id;
+    actions.appendChild(load);
+    const remove = createEl('button', 'btn btn--danger btn--sm', '删除');
+    remove.type = 'button';
+    remove.dataset.action = 'delete';
+    remove.dataset.id = entry.id;
+    actions.appendChild(remove);
 
     card.appendChild(head);
-    card.appendChild(purpose);
     card.appendChild(facts);
-    if (model.file) {
-      const fileLine = createEl('p', 'model-card__file');
-      fileLine.appendChild(createEl('span', '', '文件'));
-      fileLine.appendChild(createEl('code', '', model.file));
-      card.appendChild(fileLine);
-    }
-    card.appendChild(commandBox);
+    card.appendChild(meta);
+    card.appendChild(actions);
     return card;
   }
 
-  function renderModelCards() {
+  function renderLibrary() {
     if (!dom.modelGrid) return;
     dom.modelGrid.textContent = '';
-    const models = visibleModels();
-    models.forEach(function (model) {
-      dom.modelGrid.appendChild(buildModelCard(model));
+    const models = visibleLibrary();
+    models.forEach(function (entry) {
+      dom.modelGrid.appendChild(buildLibraryCard(entry));
     });
-
-    updateModelFilters();
-    if (dom.modelEmpty) dom.modelEmpty.hidden = models.length > 0;
+    buildModelFilters();
+    const total = state.libraryModels.length;
+    if (dom.modelEmpty) {
+      dom.modelEmpty.hidden = models.length > 0 || Boolean(state.libraryError);
+      if (state.libraryError) {
+        dom.modelEmpty.textContent = '无法读取模型库：' + state.libraryError;
+      } else {
+        dom.modelEmpty.textContent =
+          '还没有安装模型。去「发现」下载，或点「扫描目录」导入已有 GGUF。';
+      }
+    }
     if (dom.modelCount) {
-      const total = DEFAULT_MODELS.length;
       dom.modelCount.textContent =
         models.length === total
-          ? '共 ' + total + ' 个模型 · 按 5090D 32GB 显存标注'
+          ? '共 ' + total + ' 个模型' + (state.libraryLoaded ? ' · 已加载 ' + state.libraryLoaded : '')
           : '筛选后显示 ' + models.length + ' / ' + total + ' 个模型';
+    }
+  }
+
+  async function refreshLibrary() {
+    try {
+      const response = await fetch(apiUrl('/admin/models'), {
+        method: 'GET',
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      state.libraryModels = Array.isArray(body.data) ? body.data : [];
+      state.libraryLoaded = body.loaded || null;
+      state.libraryGeneration = body.generation || 0;
+      state.libraryError = null;
+    } catch (error) {
+      state.libraryModels = [];
+      state.libraryLoaded = null;
+      state.libraryError = describeFetchError(error);
+    }
+    renderLibrary();
+    if (state.selectedModel) {
+      await openModelDetail(state.selectedModel, { silent: true });
+    }
+  }
+
+  async function scanLibrary() {
+    try {
+      const response = await fetch(apiUrl('/admin/models/scan'), {
+        method: 'POST',
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      const report = body.report || {};
+      toast(
+        '扫描完成：新增 ' + (report.added || 0) + ' / 更新 ' + (report.updated || 0),
+        'ok'
+      );
+      await refreshLibrary();
+    } catch (error) {
+      toast('扫描失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  async function openModelDetail(id, options) {
+    const silent = Boolean(options && options.silent);
+    state.selectedModel = id;
+    if (!dom.modelDetail) return;
+    try {
+      const response = await fetch(apiUrl('/admin/models/' + encodeURIComponent(id)), {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const entry = await response.json();
+      renderModelDetail(entry);
+    } catch (error) {
+      dom.modelDetail.hidden = false;
+      dom.modelDetail.textContent = '';
+      dom.modelDetail.appendChild(
+        createEl('p', 'hint', '读取模型详情失败：' + describeFetchError(error))
+      );
+      if (!silent) toast('读取详情失败', 'error');
+    }
+  }
+
+  function renderModelDetail(entry) {
+    if (!dom.modelDetail) return;
+    dom.modelDetail.hidden = false;
+    dom.modelDetail.textContent = '';
+
+    const head = createEl('div', 'panel__head');
+    const title = createEl('h2', '', (entry.display_name || entry.id) + ' · 详情');
+    const close = createEl('button', 'btn btn--ghost btn--sm', '关闭');
+    close.type = 'button';
+    close.dataset.detailAction = 'close';
+    head.appendChild(title);
+    head.appendChild(close);
+
+    const facts = createEl('dl', 'model-card__facts');
+    [
+      ['ID', entry.id],
+      ['仓库', entry.repo || '本地导入'],
+      ['量化', entry.quant || '—'],
+      ['架构', entry.architecture || '—'],
+      ['体积', formatBytes(entry.size_bytes)],
+      ['许可', entry.license || '未知'],
+      ['路径', entry.path || '—'],
+      ['校验', entry.verified ? '已记录哈希' : '未校验'],
+      ['派生自', entry.derived_from || '—'],
+      ['adapter', entry.adapter_id || '—'],
+    ].forEach(function (pair) {
+      const row = createEl('div');
+      row.appendChild(createEl('dt', '', pair[0]));
+      row.appendChild(createEl('dd', '', pair[1]));
+      facts.appendChild(row);
+    });
+
+    const defaults = entry.load_defaults || {};
+    const form = createEl('div', 'detail-form');
+    const fields = [
+      ['alias', '别名', 'text', entry.alias || ''],
+      ['ctx', 'ctx', 'number', defaults.ctx || 32768],
+      ['kv', 'KV', 'select', defaults.kv || 'q8_0'],
+      ['slots', 'slots', 'number', defaults.slots || 1],
+      ['ttl', 'TTL 秒', 'number', defaults.ttl_secs || 0],
+    ];
+    fields.forEach(function (field) {
+      const label = createEl('label', 'field');
+      label.appendChild(createEl('span', '', field[1]));
+      let input;
+      if (field[2] === 'select') {
+        input = createEl('select');
+        ['f16', 'q8_0', 'q4_0'].forEach(function (kv) {
+          const option = createEl('option', '', kv);
+          option.value = kv;
+          if (kv === field[3]) option.selected = true;
+          input.appendChild(option);
+        });
+      } else {
+        input = createEl('input');
+        input.type = field[2];
+        input.value = field[3];
+      }
+      input.dataset.detailField = field[0];
+      label.appendChild(input);
+      form.appendChild(label);
+    });
+
+    const actions = createEl('div', 'detail-actions');
+    [
+      ['save', '保存别名 / 默认值', 'btn--primary'],
+      ['load', entry.loaded ? '重新加载' : '加载模型', 'btn--primary'],
+      ['unload', '卸载', 'btn--ghost'],
+      ['verify', '校验哈希', 'btn--ghost'],
+      ['delete', '删除模型', 'btn--danger'],
+    ].forEach(function (action) {
+      const button = createEl('button', 'btn btn--sm ' + action[2], action[1]);
+      button.type = 'button';
+      button.dataset.detailAction = action[0];
+      if (action[0] === 'unload' && !entry.loaded) button.disabled = true;
+      actions.appendChild(button);
+    });
+
+    const fitTable = createEl('table', 'fit-table');
+    const thead = createEl('thead');
+    const headRow = createEl('tr');
+    ['ctx', 'KV', '合计', '24GB', '32GB'].forEach(function (label) {
+      headRow.appendChild(createEl('th', '', label));
+    });
+    thead.appendChild(headRow);
+    fitTable.appendChild(thead);
+    const tbody = createEl('tbody');
+    (entry.fit_matrix || []).forEach(function (point) {
+      const row = createEl('tr');
+      row.appendChild(createEl('td', '', point.ctx));
+      row.appendChild(createEl('td', '', point.kv));
+      row.appendChild(createEl('td', '', formatBytes(point.total_bytes)));
+      row.appendChild(createEl('td', '', point.fits_24gb ? '可跑' : '—'));
+      row.appendChild(createEl('td', '', point.fits_32gb ? '可跑' : '—'));
+      tbody.appendChild(row);
+    });
+    fitTable.appendChild(tbody);
+
+    const presets = createEl('div', 'detail-presets');
+    presets.appendChild(createEl('h3', 'section-title', '预设'));
+    const presetList = createEl('ul', 'chip-list');
+    (entry.presets || []).forEach(function (preset) {
+      const item = createEl('li', 'chip', preset.name);
+      const remove = createEl('button', 'btn btn--ghost btn--sm', '删除');
+      remove.type = 'button';
+      remove.dataset.presetDelete = preset.name;
+      item.appendChild(remove);
+      presetList.appendChild(item);
+    });
+    if (!(entry.presets || []).length) {
+      presetList.appendChild(createEl('li', 'chip chip--muted', '暂无预设'));
+    }
+    const presetForm = createEl('div', 'detail-form');
+    const presetName = createEl('input');
+    presetName.type = 'text';
+    presetName.placeholder = '预设名称';
+    presetName.dataset.presetName = 'true';
+    const presetPrompt = createEl('textarea');
+    presetPrompt.placeholder = 'system prompt（可选）';
+    presetPrompt.rows = 2;
+    presetPrompt.dataset.presetPrompt = 'true';
+    const presetSave = createEl('button', 'btn btn--sm', '保存预设');
+    presetSave.type = 'button';
+    presetSave.dataset.detailAction = 'preset-save';
+    presetForm.appendChild(presetName);
+    presetForm.appendChild(presetPrompt);
+    presetForm.appendChild(presetSave);
+    presets.appendChild(presetList);
+    presets.appendChild(presetForm);
+
+    dom.modelDetail.appendChild(head);
+    dom.modelDetail.appendChild(facts);
+    dom.modelDetail.appendChild(createEl('h3', 'section-title', '加载默认值'));
+    dom.modelDetail.appendChild(form);
+    dom.modelDetail.appendChild(actions);
+    dom.modelDetail.appendChild(createEl('h3', 'section-title', '显存估算矩阵'));
+    dom.modelDetail.appendChild(fitTable);
+    dom.modelDetail.appendChild(presets);
+  }
+
+  function detailField(name) {
+    if (!dom.modelDetail) return null;
+    return dom.modelDetail.querySelector('[data-detail-field="' + name + '"]');
+  }
+
+  async function modelAction(action, id) {
+    const modelId = id || state.selectedModel;
+    if (!modelId) return;
+    let path;
+    let method = 'POST';
+    let body = null;
+    if (action === 'load') {
+      path = '/admin/models/' + encodeURIComponent(modelId) + '/load';
+      body = {
+        ctx: Number(detailField('ctx') && detailField('ctx').value) || undefined,
+        kv: detailField('kv') ? detailField('kv').value : undefined,
+        slots: Number(detailField('slots') && detailField('slots').value) || undefined,
+        ttl_secs: Number(detailField('ttl') && detailField('ttl').value) || 0,
+      };
+    } else if (action === 'unload') {
+      path = '/admin/models/' + encodeURIComponent(modelId) + '/unload';
+    } else if (action === 'verify') {
+      path = '/admin/models/' + encodeURIComponent(modelId) + '/verify';
+    } else if (action === 'delete') {
+      if (!window.confirm('删除模型 ' + modelId + '？托管文件与缓存将一并清理。')) return;
+      path = '/admin/models/' + encodeURIComponent(modelId) + '?purge=true';
+      method = 'DELETE';
+    } else {
+      return;
+    }
+    try {
+      const response = await fetch(apiUrl(path), {
+        method: method,
+        headers: authHeaders(body ? { 'content-type': 'application/json' } : undefined),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      toast(action === 'load' ? '模型已加载' : action === 'unload' ? '模型已卸载' : '操作完成', 'ok');
+      await refreshLibrary();
+      await refreshHealth({ silent: true });
+      await refreshServerModels();
+      if (action === 'delete') {
+        state.selectedModel = null;
+        if (dom.modelDetail) dom.modelDetail.hidden = true;
+      }
+    } catch (error) {
+      toast('操作失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  async function saveModelDetail() {
+    const id = state.selectedModel;
+    if (!id) return;
+    const aliasValue = detailField('alias') ? detailField('alias').value.trim() : '';
+    const defaults = {
+      ctx: Number(detailField('ctx') && detailField('ctx').value) || 32768,
+      kv: detailField('kv') ? detailField('kv').value : 'q8_0',
+      slots: Number(detailField('slots') && detailField('slots').value) || 1,
+      ttl_secs: Number(detailField('ttl') && detailField('ttl').value) || 0,
+    };
+    try {
+      let response = await fetch(apiUrl('/admin/models/' + encodeURIComponent(id) + '/alias'), {
+        method: 'PUT',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ alias: aliasValue || null }),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      response = await fetch(apiUrl('/admin/models/' + encodeURIComponent(id) + '/defaults'), {
+        method: 'PUT',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify(defaults),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      toast('默认值已保存', 'ok');
+      await refreshLibrary();
+    } catch (error) {
+      toast('保存失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  async function savePreset() {
+    const id = state.selectedModel;
+    if (!id || !dom.modelDetail) return;
+    const name = dom.modelDetail.querySelector('[data-preset-name]');
+    const prompt = dom.modelDetail.querySelector('[data-preset-prompt]');
+    if (!name || !name.value.trim()) {
+      toast('请填写预设名称', 'warn');
+      return;
+    }
+    try {
+      const response = await fetch(apiUrl('/admin/models/' + encodeURIComponent(id) + '/preset'), {
+        method: 'PUT',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          name: name.value.trim(),
+          system_prompt: prompt ? prompt.value : '',
+          temperature: 0.7,
+          top_p: 0.9,
+          max_tokens: 1024,
+        }),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      toast('预设已保存', 'ok');
+      await openModelDetail(id);
+    } catch (error) {
+      toast('保存预设失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  async function deletePreset(name) {
+    const id = state.selectedModel;
+    if (!id || !name) return;
+    try {
+      const response = await fetch(
+        apiUrl('/admin/models/' + encodeURIComponent(id) + '/preset/' + encodeURIComponent(name)),
+        { method: 'DELETE', headers: authHeaders() }
+      );
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      toast('预设已删除', 'ok');
+      await openModelDetail(id);
+    } catch (error) {
+      toast('删除预设失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  /* ---------- discover ---------- */
+
+  function seedFromStatic() {
+    return DEFAULT_MODELS.map(function (model) {
+      return {
+        id: model.id,
+        repo: model.repo,
+        file: model.file,
+        quant: model.quant,
+        license: model.license,
+        size_bytes: model.sizeBytes,
+        size_human: model.size,
+        role: model.role,
+        downloaded: false,
+      };
+    });
+  }
+
+  function renderCatalog(items) {
+    if (!dom.catalogGrid) return;
+    dom.catalogGrid.textContent = '';
+    items.forEach(function (item) {
+      const card = createEl('article', 'model-card');
+      const head = createEl('div', 'model-card__head');
+      const wrap = createEl('div', 'model-card__title-wrap');
+      wrap.appendChild(createEl('h3', 'model-card__title', item.id || item.repo));
+      wrap.appendChild(createEl('p', 'model-card__repo', item.repo));
+      const chips = createEl('div', 'model-card__chips');
+      chips.appendChild(createEl('span', 'chip', item.quant || '—'));
+      if (item.role) chips.appendChild(createEl('span', 'chip chip--muted', item.role));
+      head.appendChild(wrap);
+      head.appendChild(chips);
+
+      const facts = createEl('dl', 'model-card__facts');
+      [
+        ['体积', item.size_human || formatBytes(item.size_bytes)],
+        ['许可', item.license || '未知'],
+        ['文件', item.file || '整仓库'],
+      ].forEach(function (pair) {
+        const row = createEl('div');
+        row.appendChild(createEl('dt', '', pair[0]));
+        row.appendChild(createEl('dd', '', pair[1]));
+        facts.appendChild(row);
+      });
+
+      const actions = createEl('div', 'model-card__actions');
+      const download = createEl('button', 'btn btn--primary btn--sm', item.downloaded ? '重新下载' : '下载');
+      download.type = 'button';
+      download.dataset.catalogDownload = item.repo;
+      download.dataset.catalogFile = item.file || '';
+      download.dataset.catalogSource = 'auto';
+      actions.appendChild(download);
+      const copy = createEl('button', 'btn btn--ghost btn--sm', '复制命令');
+      copy.type = 'button';
+      copy.dataset.copy = copyCommandFor(item);
+      actions.appendChild(copy);
+      if (item.downloaded) actions.appendChild(createEl('span', 'chip chip--ok', '已安装'));
+
+      card.appendChild(head);
+      card.appendChild(facts);
+      card.appendChild(actions);
+      dom.catalogGrid.appendChild(card);
+    });
+  }
+
+  async function refreshCatalog() {
+    try {
+      const response = await fetch(apiUrl('/admin/catalog'), {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      state.catalog = Array.isArray(body.data) ? body.data : [];
+      renderCatalog(state.catalog);
+    } catch (error) {
+      state.catalog = seedFromStatic();
+      renderCatalog(state.catalog);
+      toast('推荐目录读取失败，使用内置清单：' + describeFetchError(error), 'warn');
+    }
+  }
+
+  async function searchCatalog() {
+    const query = dom.catalogSearch ? dom.catalogSearch.value.trim() : '';
+    try {
+      const response = await fetch(apiUrl('/admin/catalog/search?q=' + encodeURIComponent(query)), {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      renderCatalog(Array.isArray(body.data) ? body.data : []);
+    } catch (error) {
+      const needle = query.toLowerCase();
+      renderCatalog(
+        state.catalog.filter(function (item) {
+          return !needle || JSON.stringify(item).toLowerCase().indexOf(needle) !== -1;
+        })
+      );
+    }
+  }
+
+  function renderRepoResult(result) {
+    if (!dom.repoResult) return;
+    dom.repoResult.hidden = false;
+    dom.repoResult.textContent = '';
+    const head = createEl('div', 'panel__head');
+    head.appendChild(createEl('h3', 'section-title', result.repo + ' · ' + (result.license || '许可未知')));
+    dom.repoResult.appendChild(head);
+    if (!result.quants || !result.quants.length) {
+      dom.repoResult.appendChild(createEl('p', 'hint', '该仓库没有可下载的 GGUF 文件。'));
+      return;
+    }
+    const table = createEl('table', 'fit-table');
+    const tbody = createEl('tbody');
+    result.quants.forEach(function (quant) {
+      const row = createEl('tr');
+      row.appendChild(createEl('td', '', quant.quant));
+      row.appendChild(createEl('td', '', quant.total_human || formatBytes(quant.total_size)));
+      row.appendChild(createEl('td', '', String((quant.files || []).length) + ' 个文件'));
+      const actionCell = createEl('td');
+      const button = createEl('button', 'btn btn--primary btn--sm', '下载');
+      button.type = 'button';
+      button.dataset.quantDownload = result.repo;
+      button.dataset.quantFiles = JSON.stringify((quant.files || []).map(function (file) { return file.path; }));
+      button.dataset.quantSource = dom.repoSource ? dom.repoSource.value : 'auto';
+      actionCell.appendChild(button);
+      row.appendChild(actionCell);
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    dom.repoResult.appendChild(table);
+    dom.repoResult.appendChild(createEl('p', 'hint', '下载前请确认许可；显存适配在入库后按 GGUF metadata 计算。'));
+  }
+
+  async function resolveRepo() {
+    const repo = dom.repoInput ? dom.repoInput.value.trim() : '';
+    if (!repo) {
+      toast('请填写仓库 ID 或 URL', 'warn');
+      return;
+    }
+    if (dom.repoResult) {
+      dom.repoResult.hidden = false;
+      dom.repoResult.textContent = '正在解析…';
+    }
+    try {
+      const source = dom.repoSource ? dom.repoSource.value : 'auto';
+      const response = await fetch(
+        apiUrl('/admin/catalog/resolve?repo=' + encodeURIComponent(repo) + '&source=' + encodeURIComponent(source)),
+        { headers: authHeaders(), cache: 'no-store' }
+      );
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      state.repoResult = body;
+      renderRepoResult(body);
+    } catch (error) {
+      if (dom.repoResult) {
+        dom.repoResult.hidden = false;
+        dom.repoResult.textContent = '解析失败：' + describeFetchError(error);
+      }
+      toast('解析仓库失败', 'error');
+    }
+  }
+
+  async function startDownload(payload) {
+    try {
+      const response = await fetch(apiUrl('/admin/downloads'), {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      toast('下载任务已创建', 'ok');
+      showModelTab('downloads');
+      await refreshDownloads();
+    } catch (error) {
+      toast('下载失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  /* ---------- downloads ---------- */
+
+  const JOB_LABELS = {
+    queued: '排队中',
+    resolving: '解析中',
+    downloading: '下载中',
+    verifying: '校验中',
+    installed: '已安装',
+    failed: '失败',
+    paused: '已暂停',
+    cancelled: '已取消',
+  };
+
+  function renderDownloads() {
+    if (!dom.downloadList) return;
+    dom.downloadList.textContent = '';
+    if (!state.downloads.length) {
+      if (dom.downloadsStatus) dom.downloadsStatus.textContent = '暂无下载任务。';
+      return;
+    }
+    if (dom.downloadsStatus) {
+      dom.downloadsStatus.textContent = '共 ' + state.downloads.length + ' 个任务（每 2 秒刷新）。';
+    }
+    state.downloads.forEach(function (job) {
+      const item = createEl('li', 'download-item');
+      const head = createEl('div', 'download-item__head');
+      head.appendChild(createEl('strong', '', job.repo + ' @ ' + job.revision));
+      head.appendChild(createEl('span', 'chip', JOB_LABELS[job.state] || job.state));
+      const ratio = job.total ? Math.min(1, job.downloaded / job.total) : 0;
+      const detail = createEl(
+        'p',
+        'hint',
+        formatBytes(job.downloaded) +
+          ' / ' +
+          formatBytes(job.total) +
+          ' · ' +
+          Math.round(ratio * 100) +
+          '%' +
+          (job.bytes_per_sec ? ' · ' + formatBytes(job.bytes_per_sec) + '/s' : '')
+      );
+      const bar = createEl('div', 'progress');
+      const fill = createEl('div', 'progress__bar');
+      fill.style.width = Math.round(ratio * 100) + '%';
+      bar.appendChild(fill);
+      const actions = createEl('div', 'download-item__actions');
+      if (job.state === 'downloading' || job.state === 'resolving' || job.state === 'queued') {
+        actions.appendChild(downloadButton(job.id, 'pause', '暂停'));
+        actions.appendChild(downloadButton(job.id, 'cancel', '取消'));
+      }
+      if (job.state === 'paused' || job.state === 'failed' || job.state === 'cancelled') {
+        actions.appendChild(downloadButton(job.id, 'resume', '继续'));
+      }
+      if (job.state === 'installed' && job.model_id) {
+        const open = createEl('button', 'btn btn--ghost btn--sm', '查看模型');
+        open.type = 'button';
+        open.dataset.openModel = job.model_id;
+        actions.appendChild(open);
+      }
+      if (job.error) detail.textContent += ' · ' + job.error;
+      item.appendChild(head);
+      item.appendChild(detail);
+      item.appendChild(bar);
+      item.appendChild(actions);
+      dom.downloadList.appendChild(item);
+    });
+  }
+
+  function downloadButton(id, action, label) {
+    const button = createEl('button', 'btn btn--ghost btn--sm', label);
+    button.type = 'button';
+    button.dataset.downloadAction = action;
+    button.dataset.downloadId = id;
+    return button;
+  }
+
+  async function refreshDownloads() {
+    try {
+      const response = await fetch(apiUrl('/admin/downloads'), {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      state.downloads = Array.isArray(body.data) ? body.data : [];
+      renderDownloads();
+    } catch (error) {
+      if (dom.downloadsStatus) dom.downloadsStatus.textContent = '读取下载任务失败：' + describeFetchError(error);
+    }
+    await refreshStorage();
+  }
+
+  async function refreshStorage() {
+    if (!dom.storageInfo) return;
+    try {
+      const response = await fetch(apiUrl('/admin/storage'), {
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      state.storage = body;
+      dom.storageInfo.textContent =
+        '模型 ' +
+        (body.models_human || formatBytes(body.models_bytes)) +
+        ' · 缓存 ' +
+        (body.cache_human || formatBytes(body.cache_bytes)) +
+        ' · 可回收 ' +
+        (body.reclaimable_human || formatBytes(body.reclaimable_bytes)) +
+        ' · 缓存目录 ' +
+        (body.cache_root || '—');
+    } catch (error) {
+      dom.storageInfo.textContent = '读取磁盘信息失败：' + describeFetchError(error);
+    }
+  }
+
+  async function downloadAction(id, action) {
+    try {
+      const response = await fetch(
+        apiUrl('/admin/downloads/' + encodeURIComponent(id) + '/' + action),
+        { method: 'POST', headers: authHeaders() }
+      );
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      await refreshDownloads();
+    } catch (error) {
+      toast('下载操作失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  async function gcCache() {
+    try {
+      const response = await fetch(apiUrl('/admin/cache/gc'), {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ dry_run: false, grace_hours: 24 }),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      toast('已回收 ' + formatBytes(body.data && body.data.freed_bytes), 'ok');
+      await refreshStorage();
+    } catch (error) {
+      toast('缓存清理失败：' + describeFetchError(error), 'error');
+    }
+  }
+
+  function showModelTab(name) {
+    if (['library', 'discover', 'downloads'].indexOf(name) === -1) name = 'library';
+    state.modelTab = name;
+    Array.prototype.forEach.call(document.querySelectorAll('.model-tab'), function (button) {
+      const active = button.dataset.mtab === name;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    ['library', 'discover', 'downloads'].forEach(function (tab) {
+      const panel = document.getElementById('model-tab-' + tab);
+      if (panel) panel.hidden = tab !== name;
+    });
+    if (name === 'library') void refreshLibrary();
+    if (name === 'discover' && !state.catalog.length) void refreshCatalog();
+    if (name === 'downloads') void refreshDownloads();
+    updateModelPolling();
+  }
+
+  function updateModelPolling() {
+    if (state.modelTimer) {
+      window.clearInterval(state.modelTimer);
+      state.modelTimer = null;
+    }
+    if (state.view === 'models' && state.modelTab === 'downloads') {
+      state.modelTimer = window.setInterval(function () {
+        if (!document.hidden) void refreshDownloads();
+      }, 2000);
     }
   }
 
@@ -1201,7 +1934,12 @@
       }
     }
 
-    if (target === 'models') void refreshServerModels();
+    if (target === 'models') {
+      void refreshServerModels();
+      showModelTab(state.modelTab);
+    } else {
+      updateModelPolling();
+    }
     if (target === 'chat') {
       updateChatModel();
       dom.chatInput.focus();
@@ -1235,6 +1973,20 @@
       modelSort: document.getElementById('model-sort'),
       modelCount: document.getElementById('model-count'),
       modelEmpty: document.getElementById('model-empty'),
+      modelDetail: document.getElementById('model-detail'),
+      libraryScan: document.getElementById('library-scan'),
+      catalogGrid: document.getElementById('catalog-grid'),
+      catalogSearch: document.getElementById('catalog-search'),
+      catalogRefresh: document.getElementById('catalog-refresh'),
+      repoInput: document.getElementById('repo-input'),
+      repoSource: document.getElementById('repo-source'),
+      repoResolve: document.getElementById('repo-resolve'),
+      repoResult: document.getElementById('repo-result'),
+      downloadList: document.getElementById('download-list'),
+      downloadsStatus: document.getElementById('downloads-status'),
+      downloadsRefresh: document.getElementById('downloads-refresh'),
+      storageInfo: document.getElementById('storage-info'),
+      cacheGc: document.getElementById('cache-gc'),
       modelsServerStatus: document.getElementById('models-server-status'),
       modelsServerList: document.getElementById('models-server-list'),
       modelsRefresh: document.getElementById('models-refresh'),
@@ -1297,7 +2049,7 @@
     if (dom.modelSearch) {
       dom.modelSearch.addEventListener('input', function () {
         state.modelQuery = dom.modelSearch.value || '';
-        renderModelCards();
+        renderLibrary();
       });
     }
 
@@ -1307,16 +2059,133 @@
           event.target instanceof Element ? event.target.closest('[data-filter]') : null;
         if (!button || !button.dataset.filter) return;
         state.modelFilter = button.dataset.filter;
-        renderModelCards();
+        renderLibrary();
       });
     }
 
     if (dom.modelSort) {
       dom.modelSort.addEventListener('change', function () {
         state.modelSort = dom.modelSort.value;
-        renderModelCards();
+        renderLibrary();
       });
     }
+
+    if (dom.libraryScan) dom.libraryScan.addEventListener('click', function () { void scanLibrary(); });
+    if (dom.catalogRefresh) dom.catalogRefresh.addEventListener('click', function () { void refreshCatalog(); });
+    if (dom.catalogSearch) {
+      dom.catalogSearch.addEventListener('input', function () {
+        void searchCatalog();
+      });
+    }
+    if (dom.repoResolve) dom.repoResolve.addEventListener('click', function () { void resolveRepo(); });
+    if (dom.repoInput) {
+      dom.repoInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void resolveRepo();
+        }
+      });
+    }
+    if (dom.downloadsRefresh) {
+      dom.downloadsRefresh.addEventListener('click', function () { void refreshDownloads(); });
+    }
+    if (dom.cacheGc) dom.cacheGc.addEventListener('click', function () { void gcCache(); });
+
+    document.addEventListener('click', function (event) {
+      const tab = event.target instanceof Element ? event.target.closest('[data-mtab]') : null;
+      if (tab && tab.dataset.mtab) {
+        showModelTab(tab.dataset.mtab);
+        return;
+      }
+      const cardAction =
+        event.target instanceof Element ? event.target.closest('[data-action][data-id]') : null;
+      if (cardAction) {
+        const action = cardAction.dataset.action;
+        const id = cardAction.dataset.id;
+        if (action === 'detail') void openModelDetail(id);
+        else if (action === 'load' || action === 'unload' || action === 'delete') {
+          if (action === 'delete' && !window.confirm('删除模型 ' + id + '？')) return;
+          const path =
+            '/admin/models/' +
+            encodeURIComponent(id) +
+            (action === 'delete' ? '?purge=true' : '/' + action);
+          const method = action === 'delete' ? 'DELETE' : 'POST';
+          fetch(apiUrl(path), { method: method, headers: authHeaders() })
+            .then(function (response) {
+              if (!response.ok) return readErrorDetail(response).then(function (text) { throw new Error(text); });
+              toast(action === 'load' ? '模型已加载' : action === 'unload' ? '模型已卸载' : '模型已删除', 'ok');
+              state.selectedModel = null;
+              if (dom.modelDetail) dom.modelDetail.hidden = true;
+              return refreshLibrary()
+                .then(function () { return refreshHealth({ silent: true }); })
+                .then(function () { return refreshServerModels(); });
+            })
+            .catch(function (error) { toast('操作失败：' + describeFetchError(error), 'error'); });
+        }
+        return;
+      }
+      const detailAction =
+        event.target instanceof Element ? event.target.closest('[data-detail-action]') : null;
+      if (detailAction) {
+        const action = detailAction.dataset.detailAction;
+        if (action === 'close') {
+          state.selectedModel = null;
+          if (dom.modelDetail) dom.modelDetail.hidden = true;
+        } else if (action === 'save') void saveModelDetail();
+        else if (action === 'preset-save') void savePreset();
+        else if (action === 'load' || action === 'unload' || action === 'verify' || action === 'delete') {
+          void modelAction(action);
+        }
+        return;
+      }
+      const presetDelete =
+        event.target instanceof Element ? event.target.closest('[data-preset-delete]') : null;
+      if (presetDelete) {
+        void deletePreset(presetDelete.dataset.presetDelete);
+        return;
+      }
+      const catalogDownload =
+        event.target instanceof Element ? event.target.closest('[data-catalog-download]') : null;
+      if (catalogDownload) {
+        void startDownload({
+          repo: catalogDownload.dataset.catalogDownload,
+          file: catalogDownload.dataset.catalogFile || undefined,
+          source: catalogDownload.dataset.catalogSource || 'auto',
+        });
+        return;
+      }
+      const quantDownload =
+        event.target instanceof Element ? event.target.closest('[data-quant-download]') : null;
+      if (quantDownload) {
+        let files = [];
+        try {
+          files = JSON.parse(quantDownload.dataset.quantFiles || '[]');
+        } catch (error) {
+          files = [];
+        }
+        void startDownload({
+          repo: quantDownload.dataset.quantDownload,
+          files: files,
+          source: quantDownload.dataset.quantSource || 'auto',
+        });
+        return;
+      }
+      const downloadActionButton =
+        event.target instanceof Element ? event.target.closest('[data-download-action]') : null;
+      if (downloadActionButton) {
+        void downloadAction(
+          downloadActionButton.dataset.downloadId,
+          downloadActionButton.dataset.downloadAction
+        );
+        return;
+      }
+      const openModel =
+        event.target instanceof Element ? event.target.closest('[data-open-model]') : null;
+      if (openModel) {
+        showModelTab('library');
+        void openModelDetail(openModel.dataset.openModel);
+      }
+    });
 
     dom.themeToggle.addEventListener('change', function () {
       applyTheme(dom.themeToggle.checked ? 'light' : 'dark');
@@ -1411,7 +2280,9 @@
     bindEvents();
     loadSettings();
     buildModelFilters();
-    renderModelCards();
+    renderLibrary();
+    void refreshLibrary();
+    void refreshCatalog();
     updateTrainPreview();
     setStatusChecking();
     setChatStatus('就绪');

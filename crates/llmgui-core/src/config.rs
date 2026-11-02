@@ -74,6 +74,12 @@ pub struct ModelConfig {
     pub gpu_layers: i32,
     pub n_threads: Option<i32>,
     pub n_batch: u32,
+    /// Additional directories scanned for models (external libraries).
+    #[serde(default)]
+    pub extra_dirs: Vec<PathBuf>,
+    /// Unload an idle model after this many seconds (0 = never).
+    #[serde(default)]
+    pub idle_ttl_secs: u64,
 }
 
 impl Default for ModelConfig {
@@ -84,6 +90,8 @@ impl Default for ModelConfig {
             gpu_layers: -1,
             n_threads: None,
             n_batch: 512,
+            extra_dirs: Vec::new(),
+            idle_ttl_secs: 0,
         }
     }
 }

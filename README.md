@@ -53,6 +53,31 @@ cargo run -p llmgui-cli -- pull Qwen/Qwen3-14B-GGUF --file Qwen3-14B-Q4_K_M.gguf
 cargo run -p llmgui-cli -- pull Qwen/Qwen3-32B-GGUF --file Qwen3-32B-Q4_K_M.gguf
 ```
 
+## 模型管理
+
+模型库由 `$LLMGUI_HOME/registry.json` 索引，可由 `models/*/manifest.json` 与目录扫描重建。
+服务端是唯一权威，CLI 与 Web GUI 共用同一套 `/admin/*` 接口。
+
+```powershell
+llmgui models list                 # 已安装模型（--json 输出完整注册表）
+llmgui models scan                 # 扫描默认目录与 config 里的 extra_dirs
+llmgui models import path\to\model.gguf
+llmgui models import path\to\merged.gguf --base-id Qwen--Qwen3-14B-GGUF--q4-k-m
+llmgui models show <id>             # 详情 + 显存矩阵
+llmgui models verify [id]           # 复核 manifest 里的 SHA256
+llmgui models remove <id> --purge   # 删除模型并回收未引用缓存
+
+# 运行时（先启动 llmgui serve，可不再传 --model）
+llmgui load <id> --ctx 16384 --kv q8_0 --slots 1 --ttl 3600
+llmgui ps
+llmgui unload --all
+```
+
+- `llmgui serve --model` 仍兼容：启动时把该模型登记为已加载；不传 `--model` 时首个聊天请求按已安装模型 JIT 加载。
+- 单卡默认只常驻一个模型；切换会 drain 在飞请求（超时可配 `LLMGUI_DRAIN_TIMEOUT_SECS`），失败回滚旧模型。
+- 加载前按 GGUF metadata + ctx/KV/slots 估算显存；超过 `LLMGUI_VRAM_BYTES`（默认 32GB）直接拒绝。
+- Web GUI 的模型页分「模型库 / 发现 / 下载」：支持搜索、显存筛选、加载/卸载、别名与默认值、删除、下载队列与磁盘回收。
+
 ## 真实推理
 
 ### 方式 A：WSL/Linux llama-server（当前 Windows 可用）

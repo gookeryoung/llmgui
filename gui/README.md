@@ -33,7 +33,7 @@ LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
 
 | 页面 | 功能 |
 |---|---|
-| 模型 Models | 内置默认模型清单（镜像 `models/v0.toml`，含用途 / 量化 / 许可 / 大小 / 32GB 显存估算）；支持关键词搜索、按用途与显存筛选、按体积排序；每项提供可复制的 `llmgui pull ...` 命令；展示 `GET /v1/models` 返回的服务端已加载模型 |
+| 模型 Models | 「模型库 / 发现 / 下载」三视图：库来自 `GET /admin/models`（搜索、显存/类型筛选、排序、加载/卸载、别名与默认值、校验、删除）；发现支持推荐目录、仓库/URL 解析、量化与体积对比后入队；下载页显示进度、暂停/继续/取消、磁盘占用与缓存 GC；顶部保留 `GET /v1/models` 已加载模型 |
 | 聊天 Chat | 消息列表、发送 / 停止、Enter 发送；`fetch` + `ReadableStream` 解析 SSE（`data:` 行、`[DONE]`）；显示 TTFT、tok/s、token 用量；temperature / max_tokens 可调；错误以气泡 + toast 提示 |
 | 训练 Train | QLoRA 表单（base_model、dataset path、method、seq_len、micro_batch、grad_accum、LoRA r/alpha）；实时生成 YAML 预览与 `llmgui train --config train.yaml` 命令，可复制或下载 YAML |
 | 设置 Settings | API base（留空 = 同源）、API key、主题（深 / 浅）；「测试连接」调用 `/v1/models` 验证连通性与 key |
@@ -43,13 +43,20 @@ LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
 
 ## 模型选择（32GB 显存）
 
-模型页内置两档针对 RTX 5090 D 32GB 的大模型：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx
+推荐目录仍来自 `models/v0.toml`（`GET /admin/catalog`），包含两档针对 RTX 5090 D 32GB 的大模型：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx
 估算约 13.8GB，标注「可跑」）与 `Qwen/Qwen3-32B-GGUF`（Q4_K_M，32k ctx 估算约 25.4GB，
 标注「显存紧张」，建议降到 16k ctx 并单路并发）。显存估算按「体积 + q8_0 KV @32k + 固定
 buffer/runtime」口径，精确值以 `llmgui estimate` 读取 GGUF metadata 为准。
 
-工具栏提供：搜索（模型名 / 仓库 / id / 量化 / 用途）、用途与显存筛选 chip（带数量）、
-体积排序；筛选结果为空时显示提示。搜索词、筛选与排序只影响当前渲染，不写入清单。
+工具栏提供：搜索（模型名 / 仓库 / id / 量化）、显存与类型筛选 chip（带数量）、
+名称/体积/最近使用排序；筛选结果为空时显示提示。搜索词、筛选与排序只影响当前渲染。
+
+「发现」页可粘贴仓库 ID 或 ModelScope/HF URL，服务端列出 GGUF 文件并按量化分组与汇总体积；
+确认许可后创建下载任务（`POST /admin/downloads`）。下载页每 2 秒轮询任务快照（服务端同时提供
+`GET /admin/downloads/{id}/events` SSE），支持暂停/继续/取消/重试与完成后的「查看模型」。
+
+「模型库」的详情面板展示 GGUF 元数据、fit 矩阵（8k/16k/32k × f16/q8_0/q4_0）、别名、
+加载默认值（ctx/KV/slots/TTL）、预设与校验/删除。删除使用中的模型返回 409，需先卸载。
 
 ## 存储与隐私
 

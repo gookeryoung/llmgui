@@ -12,6 +12,18 @@
 
 ### Added
 
+- ADR 0002 模型管理落地（P0/P1 完成，P2a/P2b/P3 部分）(ADR 0002 P0/P1/P2a/P2b/P3)：
+  - 注册表驱动的模型库 `$LLMGUI_HOME/registry.json`（原子写 + 文件锁 + 可由 manifest 重建），
+    扫描/导入 GGUF、详情与 24/32GB fit 矩阵、别名/加载默认值/预设、SHA256 校验、删除与引用检查；
+  - `llmgui models list|show|scan|import|remove|verify|search --json`；`pull` 完成后自动入库，
+    按量化写入独立目录（`<repo-id>--<quant>`）；
+  - `/admin/models*`、`/admin/catalog*`、`/admin/downloads*`、`/admin/storage`、`/admin/cache/gc`；
+    下载任务支持进度、暂停/继续/取消/重试、持久化恢复与 SSE 快照，CAS 引用计数 GC；
+  - 运行时 load/unload/switch、加载前显存闸门、JIT 按需加载、TTL 空闲卸载、drain/回滚；
+    `llmgui serve` 不再必须 `--model`，`/v1/models` 反映当前已加载模型；
+  - 派生模型注册（`--base-id` / `--adapter-id`）与 `model.yaml` 兼容 JSON 描述符导入导出；
+  - Web GUI 模型页重构为「模型库 / 发现 / 下载」：搜索/显存筛选/排序、详情抽屉、加载/卸载/
+    删除/校验、推荐目录与仓库解析、下载队列与磁盘回收。
 - 模型清单新增 5090D 32GB 大模型档位：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx 估算
   ≈13.8GB）与 `Qwen/Qwen3-32B-GGUF`（Q4_K_M，估算 ≈25.4GB，建议 16k ctx + 单路并发），
   `models/v0.toml` 与 GUI 内置清单同步（需求卡片 0002）。

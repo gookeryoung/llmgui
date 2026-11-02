@@ -2217,6 +2217,7 @@ name = "llmgui-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "hex",
  "llmgui-backend-api",
  "llmgui-backend-llamacpp",
  "llmgui-backend-mock",
@@ -2229,7 +2230,10 @@ dependencies = [
  "llmgui-server",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
  "ureq",
@@ -2288,6 +2292,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2314,12 +2319,16 @@ dependencies = [
  "llmgui-backend-api",
  "llmgui-backend-mock",
  "llmgui-core",
+ "llmgui-download",
+ "llmgui-models",
  "llmgui-scheduler",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
  "tokio-stream",
+ "toml 0.8.23",
  "tower",
  "tower-http",
  "tracing",
