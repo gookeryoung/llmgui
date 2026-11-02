@@ -594,7 +594,7 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 
 ## 19. 交接
 
-- 当前阶段：P3 进行中（Rust 运行时 + 真实 upstream 推理 + Python 训练包 + Web GUI 可运行；in-process FFI 仍受 Windows 环境阻塞）。
+- 当前阶段：P3/v0.1 可交付（Linux in-process + Windows upstream 真实推理；Python 训练/导出/量化闭环；GUI/打包/安装/CI 完成；发布签名与长稳为 post-v1.0）。
 - 已完成：需求卡片 0001；三份调研；ADR 模板/索引；Rust workspace（11 crate）；ModelScope/HF 下载器；GGUF 解析/显存预估；OpenAI 兼容服务/CLI/bench；`upstream` 后端；Python 训练 worker；Web GUI；Makefile/CI/文档门禁。
 - 已验证：`cargo test --workspace` 全绿；Python 201 tests / 92.91%；`cargo clippy -D warnings` 通过；`make check-docs` 通过；ModelScope 下载 Qwen2.5-0.5B-GGUF 并 SHA256 校验；`llmgui serve --backend mock` + SSE + GUI 冒烟通过；WSL `llama-server` 提供 Qwen2.5-0.5B，`llmgui run/serve --backend upstream` 返回真实模型输出（单流约 140 tok/s，4 并发聚合 288 tok/s，CPU）；`--start-wsl` 可一条命令检测/拉起 WSL server。
 - 下一步（按优先级）：
