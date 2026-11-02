@@ -19,6 +19,7 @@ llmgui-download = { path = "../llmgui-download" }
 llmgui-backend-api = { path = "../llmgui-backend-api" }
 llmgui-backend-mock = { path = "../llmgui-backend-mock" }
 llmgui-backend-llamacpp = { path = "../llmgui-backend-llamacpp" }
+llmgui-backend-upstream = { path = "../llmgui-backend-upstream" }
 llmgui-scheduler = { path = "../llmgui-scheduler" }
 llmgui-server = { path = "../llmgui-server" }
 llmgui-bench = { path = "../llmgui-bench" }

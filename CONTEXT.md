@@ -11,7 +11,7 @@
 | 术语 | 英文/缩写 | 含义 |
 |---|---|---|
 | 运行时 | runtime | 加载模型、调度请求、执行推理并对外提供 API 的进程；本项目为 Rust 单进程 |
-| 执行后端 | backend | 真正执行 token 生成的库；v1.0 为 llama.cpp；原生后端（mistral.rs 等）另立 ADR 评估 |
+| 执行后端 | backend | 真正执行 token 生成的库；v1.0 为 llama.cpp；`upstream` 为接本地 llama-server 的保底后端；原生后端另立 ADR 评估 |
 | GGUF | — | llama.cpp 的模型文件格式，含 metadata、tokenizer 与量化张量；推理侧唯一模型格式 |
 | safetensors | — | 无代码执行的张量序列化格式；训练权重、PEFT adapter、merged 模型的唯一权重格式 |
 | 量化 | quantization | 以更低比特表示权重/缓存；默认 Q4_K_M，备选 IQ4_XS，KV 默认 q8_0 |

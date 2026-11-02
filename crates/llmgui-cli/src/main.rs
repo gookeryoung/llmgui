@@ -242,9 +242,12 @@ fn list_models() -> Result<()> {
 fn make_backend(backend: &str) -> Result<Arc<dyn Backend>> {
     match backend {
         "mock" => Ok(Arc::new(MockBackend::default())),
+        "upstream" | "llama-server" => Ok(Arc::new(
+            llmgui_backend_upstream::UpstreamBackend::from_env()?,
+        )),
         "llama" | "llama.cpp" => Ok(Arc::new(llmgui_backend_llamacpp::LlamaCppBackend::new())),
         other => Err(LlmguiError::Config(format!(
-            "unknown backend {other}; use mock|llama"
+            "unknown backend {other}; use mock|upstream|llama"
         ))),
     }
 }
@@ -294,20 +297,24 @@ async fn serve(
         .as_ref()
         .and_then(|p| p.file_stem())
         .and_then(|s| s.to_str())
-        .unwrap_or("mock")
+        .unwrap_or(if backend == "upstream" || backend == "llama-server" {
+            "upstream"
+        } else {
+            "mock"
+        })
         .to_string();
+    let load = LoadConfig {
+        n_ctx: config.model.ctx,
+        n_batch: config.model.n_batch,
+        n_gpu_layers: config.model.gpu_layers,
+        n_threads: config.model.n_threads,
+        kv_type: config.model.kv_type.clone(),
+        slots: config.server.max_concurrent,
+    };
     if let Some(path) = &model {
-        backend_impl.load(
-            path,
-            &LoadConfig {
-                n_ctx: config.model.ctx,
-                n_batch: config.model.n_batch,
-                n_gpu_layers: config.model.gpu_layers,
-                n_threads: config.model.n_threads,
-                kv_type: config.model.kv_type.clone(),
-                slots: config.server.max_concurrent,
-            },
-        )?;
+        backend_impl.load(path, &load)?;
+    } else if backend == "upstream" || backend == "llama-server" {
+        backend_impl.load(std::path::Path::new("upstream"), &load)?;
     }
     let gui = gui_dir
         .or_else(|| std::env::var("LLMGUI_GUI_DIR").ok().map(PathBuf::from))
@@ -334,6 +341,12 @@ async fn run_one(
             load.n_ctx = ctx;
         }
         backend_impl.load(path, &load)?;
+    } else if backend == "upstream" || backend == "llama-server" {
+        let mut load = LoadConfig::default();
+        if ctx > 0 {
+            load.n_ctx = ctx;
+        }
+        backend_impl.load(std::path::Path::new("upstream"), &load)?;
     }
     let cancel = Arc::new(AtomicBool::new(false));
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -400,6 +413,8 @@ async fn bench(
     let backend_impl = make_backend(&backend)?;
     if let Some(path) = &model {
         backend_impl.load(path, &LoadConfig::default())?;
+    } else if backend == "upstream" || backend == "llama-server" {
+        backend_impl.load(std::path::Path::new("upstream"), &LoadConfig::default())?;
     }
     let scheduler = Arc::new(Scheduler::new(backend_impl, concurrency));
     let report = llmgui_bench::run(

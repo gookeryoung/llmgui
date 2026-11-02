@@ -18,6 +18,8 @@
   greedy/temperature/top-p 采样、UTF-8 跨 token 拼接、取消与统计；默认 CPU 路径。
 - OpenAI 兼容服务：`/v1/chat/completions`（SSE/非流式）、`/v1/completions`、`/v1/models`、
   `/healthz`、`/metrics`、Bearer token、本地 Web GUI 静态托管。
+- `upstream` 后端：对接本地/ WSL `llama-server`（OpenAI 兼容），在 Windows in-process
+  阻塞期间提供真实模型推理；已验证 Qwen2.5-0.5B CPU 输出与 137.5 tok/s 量级。
 - CLI：`pull/list/serve/run/estimate/bench/train`。
 - Python 训练包：配置、数据（Alpaca/ShareGPT/OpenAI messages）、assistant mask、packing、
   显存估算、PEFT adapter/GGUF 导出封装、stdio NDJSON JSON-RPC worker、QLoRA lazy 训练器；
