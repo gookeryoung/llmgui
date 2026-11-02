@@ -41,10 +41,10 @@
 ### Known limitations
 
 - Rust 调度器提供并发槽位/取消（3 个测试）；upstream 通过 `cache_prompt` 使用 llama-server
-  前缀缓存；in-process llama.cpp 已实现 exact-prefix `SeqState` 快照/恢复，但因 Windows FFI
-  阻塞未能运行时验证，逐步 batch 交织仍未实现。
-- llama.cpp 后端在部分旧版 MSVC 工具链下运行期初始化崩溃（`STATUS_ACCESS_VIOLATION`），
-  需要 VS2022 新工具链或 Linux/WSL；upstream 后端已验证真实推理，mock 后端不受影响。
+  前缀缓存；in-process llama.cpp 已在 Linux/WSL 验证：单流 87 tok/s、同 prompt 两请求
+  prefix cache 命中 1 次；Windows 初始化崩溃，逐步 batch 交织未实现。
+- llama.cpp 后端在 Windows 11 + Arrow Lake 上 `llama_backend_init` 触发
+  `STATUS_ACCESS_VIOLATION`（自编译/预编译/MSVC/MinGW 均复现）；Linux/WSL 与 upstream 正常。
 - Python 真实 QLoRA 4-bit 已用 bitsandbytes CPU 验证 1 step；7B/GPU 训练性能未验证；
   GGUF 转换/量化与微调后 GGUF 推理已验证。
 - Tauri 桌面壳未构建，GUI 以本地 Web 形式交付；多卡、DPO、speculative、国产卡为 post-v1.0。

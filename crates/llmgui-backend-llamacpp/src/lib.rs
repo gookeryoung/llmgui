@@ -57,7 +57,7 @@ impl Backend for LlamaCppBackend {
             eprintln!("[llama] entering backend load for {}", model_path.display());
             self.inner.load(model_path, config)?;
             eprintln!("[llama] backend load returned");
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(feature = "llama"))]
         {
@@ -80,7 +80,7 @@ impl Backend for LlamaCppBackend {
     fn tokenize(&self, text: &str, add_special: bool) -> Result<Vec<u32>> {
         #[cfg(feature = "llama")]
         {
-            return self.inner.tokenize(text, add_special);
+            self.inner.tokenize(text, add_special)
         }
         #[cfg(not(feature = "llama"))]
         {
@@ -99,7 +99,7 @@ impl Backend for LlamaCppBackend {
     ) -> Result<()> {
         #[cfg(feature = "llama")]
         {
-            return self.inner.generate(request, cancel, tx);
+            self.inner.generate(request, cancel, tx)
         }
         #[cfg(not(feature = "llama"))]
         {
@@ -113,7 +113,7 @@ impl Backend for LlamaCppBackend {
     fn prefix_cache_stats(&self) -> PrefixCacheStats {
         #[cfg(feature = "llama")]
         {
-            return self.inner.prefix_cache_stats();
+            self.inner.prefix_cache_stats()
         }
         #[cfg(not(feature = "llama"))]
         PrefixCacheStats::default()

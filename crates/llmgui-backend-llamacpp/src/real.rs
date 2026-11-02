@@ -151,6 +151,7 @@ impl RealBackend {
             )));
         }
         let prompt_tokens = tokens.len() as u32;
+        let prefix_len = tokens.len().saturating_sub(1);
         let mut batch = LlamaBatch::new(ctx.n_batch() as usize, 1);
         let cache_key = hash_tokens(&tokens);
         let cached = {
@@ -158,37 +159,33 @@ impl RealBackend {
             cache.get(&cache_key).cloned()
         };
         let mut prefix_hit = false;
-        let mut position = 0i32;
         if let Some(state) = cached
             && ctx.state_seq_set(&state, 0).is_ok()
         {
             prefix_hit = true;
-            position = tokens.len() as i32;
             self.prefix_hits.fetch_add(1, Ordering::Relaxed);
             self.prefix_saved_tokens
-                .fetch_add(u64::from(prompt_tokens), Ordering::Relaxed);
+                .fetch_add(prefix_len as u64, Ordering::Relaxed);
         }
         if !prefix_hit {
             let mut offset = 0usize;
-            while offset < tokens.len() {
-                let end = (offset + ctx.n_batch() as usize).min(tokens.len());
+            while offset < prefix_len {
+                let end = (offset + ctx.n_batch() as usize).min(prefix_len);
                 batch.clear();
                 for (index, token) in tokens[offset..end].iter().enumerate() {
                     batch
-                        .add(
-                            *token,
-                            position + index as i32,
-                            &[0],
-                            end == tokens.len() && index == end - offset - 1,
-                        )
+                        .add(*token, offset as i32 + index as i32, &[0], false)
                         .map_err(|e| LlmguiError::Backend(format!("batch add: {e}")))?;
                 }
                 ctx.decode(&mut batch)
                     .map_err(|e| LlmguiError::Backend(format!("prefill decode: {e}")))?;
-                position += (end - offset) as i32;
                 offset = end;
             }
-            if let Ok(state) = ctx.state_seq_get(0, LlamaStateSeqFlags::empty()) {
+            // Save the prefix state *before* the last prompt token so a cache
+            // hit can restore KV and still compute logits for sampling.
+            if prefix_len > 0
+                && let Ok(state) = ctx.state_seq_get(0, LlamaStateSeqFlags::empty())
+            {
                 let mut cache = self.prefix_cache.lock().unwrap();
                 if cache.len() >= 8 {
                     cache.clear();
@@ -197,6 +194,15 @@ impl RealBackend {
             }
             self.prefix_misses.fetch_add(1, Ordering::Relaxed);
         }
+        // Always decode the final prompt token; this produces the logits used
+        // by the sampler and works for both a cold prefill and a cache hit.
+        batch.clear();
+        batch
+            .add(tokens[prefix_len], prefix_len as i32, &[0], true)
+            .map_err(|e| LlmguiError::Backend(format!("batch add last token: {e}")))?;
+        ctx.decode(&mut batch)
+            .map_err(|e| LlmguiError::Backend(format!("decode last token: {e}")))?;
+        let mut position = tokens.len() as i32;
 
         let mut sampler = if request.temperature <= 0.0 {
             LlamaSampler::greedy()
@@ -223,16 +229,16 @@ impl RealBackend {
                 break "length".to_string();
             }
             let piece = model.vocab().token_to_piece(token, false, None);
-            if let Some(text) = decoder.push(&piece) {
-                if !text.is_empty() {
-                    if ttft.is_none() {
-                        ttft = Some(started.elapsed());
-                    }
-                    let _ = tx.send(TokenEvent::Token {
-                        id: token.0 as u32,
-                        text,
-                    });
+            if let Some(text) = decoder.push(&piece)
+                && !text.is_empty()
+            {
+                if ttft.is_none() {
+                    ttft = Some(started.elapsed());
                 }
+                let _ = tx.send(TokenEvent::Token {
+                    id: token.0 as u32,
+                    text,
+                });
             }
             completion_tokens += 1;
             if position as usize >= n_ctx.saturating_sub(1) {

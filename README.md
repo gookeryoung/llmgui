@@ -81,10 +81,13 @@ cargo run -p llmgui-cli -- serve --backend upstream --start-wsl `
 cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf>
 ```
 
+> **Linux/WSL 已验证**：同一代码在 WSL Ubuntu 24.04 构建后，单流 87 tok/s、TTFT 25ms，
+> 同 prompt 两请求命中 in-process prefix cache 1 次；服务地址 `/healthz`、`/metrics` 正常。
+>
 > **Windows 已知阻塞**：Windows 11 build 26300 + Intel Arrow Lake 上
 > `llama_backend_init()` 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 与预编译
 > llama-cli 上均触发 `STATUS_ACCESS_VIOLATION`；FFI 编译、GGUF 下载/解析、显存预估正常。
-> 因此新增 `upstream` 后端作为 Windows 保底；in-process 路径在 Linux 或修复后使用。
+> 因此 Windows 使用 `upstream` 后端保底，in-process 路径在 Linux 或修复后使用。
 
 ## 微调
 
