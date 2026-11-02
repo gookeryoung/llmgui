@@ -485,11 +485,11 @@ CLI 统一 `--json` 输出 `{ok, data|error: {code, message}, generation}`；人
 
 | 期 | 状态 | 代码落点 | 测试 | 提交 |
 |---|---|---|---|---|
-| P0 | 已落地 | `crates/llmgui-models/src/library.rs`（registry/scan/import/fit/preset）、`crates/llmgui-server/src/{library,admin}.rs`、`crates/llmgui-cli/src/main.rs`（`models` 子命令）、`gui/`（模型库） | `cargo test -p llmgui-models`、`cargo test -p llmgui-server`（scan/list/detail/alias/defaults/presets/descriptor）、jsdom 库冒烟 | 本次提交 |
-| P1 | 已落地 | `crates/llmgui-download/src/{lib,gc}.rs`（多文件/按量化目录）、`crates/llmgui-server/src/downloads.rs`、`admin.rs`（catalog/downloads/storage/gc）、`gui/`（发现/下载） | 下载/GC 单测、`admin::tests::invalid_source_download_fails_cleanly`、`catalog_and_storage`、jsdom 下载视图冒烟 | 本次提交 |
-| P2a | 部分落地 | `crates/llmgui-server/src/runtime.rs` + `admin.rs`（load/unload/switch/JIT/TTL/显存闸门/别名/defaults）、`llmgui-cli`（load/ps/unload）、`gui/`（加载控件/详情） | `runtime::tests::load_unload_and_ttl`、`memory_gate_rejects_oversized_model`、`admin::tests::alias_defaults_and_load`；GPU lease 尚未接入 | 本次提交 |
-| P2b | 部分落地 | `llmgui_models::library::register_derived`、`POST /admin/models/register`、`models import --base-id/--adapter-id`；adapter manifest 与训练完成自动注册未实现 | `import_and_derived_registration`、`descriptor_roundtrip` | 本次提交 |
-| P3 | 部分落地 | `GET/POST /admin/models[/{id}]/descriptor`（model.yaml 兼容 JSON 子集）、`models verify`、旧目录扫描导入；批量操作与预设导入导出未实现 | `descriptor_roundtrip`、`models verify` 手测 | 本次提交 |
+| P0 | 已落地 | `crates/llmgui-models/src/library.rs`（registry/scan/import/fit/preset）、`crates/llmgui-server/src/{library,admin}.rs`、`crates/llmgui-cli/src/main.rs`（`models` 子命令）、`gui/`（模型库） | `cargo test -p llmgui-models`、`cargo test -p llmgui-server`（scan/list/detail/alias/defaults/presets/descriptor）、jsdom 库冒烟 | 8030e79 |
+| P1 | 已落地 | `crates/llmgui-download/src/{lib,gc}.rs`（多文件/按量化目录）、`crates/llmgui-server/src/downloads.rs`、`admin.rs`（catalog/downloads/storage/gc）、`gui/`（发现/下载） | 下载/GC 单测、`admin::tests::invalid_source_download_fails_cleanly`、`catalog_and_storage`、jsdom 下载视图冒烟 | 8030e79 |
+| P2a | 部分落地 | `crates/llmgui-server/src/runtime.rs` + `admin.rs`（load/unload/switch/JIT/TTL/显存闸门/别名/defaults）、`llmgui-cli`（load/ps/unload）、`gui/`（加载控件/详情） | `runtime::tests::load_unload_and_ttl`、`memory_gate_rejects_oversized_model`、`admin::tests::alias_defaults_and_load`；GPU lease 尚未接入 | 8030e79 |
+| P2b | 部分落地 | `llmgui_models::library::register_derived`、`POST /admin/models/register`、`models import --base-id/--adapter-id`；adapter manifest 与训练完成自动注册未实现 | `import_and_derived_registration`、`descriptor_roundtrip` | 8030e79 |
+| P3 | 部分落地 | `GET/POST /admin/models[/{id}]/descriptor`（model.yaml 兼容 JSON 子集）、`models verify`、旧目录扫描导入；批量操作与预设导入导出未实现 | `descriptor_roundtrip`、`models verify` 手测 | 8030e79 |
 
 ## 19. 交接
 
