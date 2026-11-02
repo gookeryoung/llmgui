@@ -281,7 +281,7 @@ def train(  # pragma: no cover - only exercised with the full ML stack
         r=config.lora_r,
         lora_alpha=config.lora_alpha,
         lora_dropout=config.lora_dropout,
-        target_modules=_target_modules(config),
+        target_modules=_target_modules(config) or "all-linear",
         bias="none",
         task_type="CAUSAL_LM",
     )

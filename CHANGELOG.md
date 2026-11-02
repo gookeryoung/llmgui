@@ -27,6 +27,9 @@
 - 端到端训练冒烟：Qwen2.5-0.5B + CPU LoRA / QLoRA 4-bit（各 1 step）经 `llmgui train` 跑通，
   生成 `adapter_model.safetensors` 与训练 manifest；修复了 worker 在 Windows 上 torch 导入
   与 stdin 读线程的死锁。
+- 端到端导出/推理闭环：PEFT adapter → `merge_adapter_peft`（`merge_and_unload`）→
+  `convert_hf_to_gguf.py` → `llama-quantize Q4_K_M` → WSL `llama-server` → upstream 后端输出；
+  微调后的 GGUF 已在 18081 端口实测推理成功。
 - Web GUI：模型库、流式聊天、训练 YAML 生成、设置；零构建、离线、无外部资源。
 - 文档门禁：`scripts/check_adr_landing.py`、`scripts/gitkeep_check.py`、Makefile、CI。
 

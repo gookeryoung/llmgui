@@ -94,6 +94,25 @@ cargo run -p llmgui-cli -- train --config examples/train.json
 
 没有 torch 时 worker 会返回结构化 `missing_dependency`，不会静默失败。
 
+### 导出 GGUF（已验证）
+
+```powershell
+# 1. 原生 PEFT merge（比 llama-export-lora 更适合 HF adapter）
+python -m llmgui_train.cli merge `
+  --base-model C:/Users/me/llmgui-home/models/Qwen2.5-0.5B-Instruct `
+  --adapter-dir C:/Users/me/llmgui-home/jobs/sft-cpu `
+  --output C:/Users/me/llmgui-home/jobs/merged-cpu --native
+
+# 2. HF -> GGUF（指向 llama.cpp 的 convert_hf_to_gguf.py）
+python -m llmgui_train.cli export-gguf `
+  --model-dir C:/Users/me/llmgui-home/jobs/merged-cpu `
+  --output C:/Users/me/llmgui-home/jobs/merged-f16.gguf `
+  --tool "python C:/path/to/llama.cpp/convert_hf_to_gguf.py"
+```
+
+量化：`llama-quantize merged-f16.gguf merged-q4km.gguf Q4_K_M`（Linux/WSL 构建的 llama.cpp），
+然后用 `llama-server` 加载该 GGUF，即可通过 upstream 后端服务。
+
 ## 目录
 
 - `crates/`：Rust workspace（core/models/download/backend/scheduler/server/cli/bench）

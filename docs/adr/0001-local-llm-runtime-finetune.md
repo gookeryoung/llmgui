@@ -586,11 +586,11 @@ Rust → Python：`hello/hello_ok`、`estimate`、`train.start`、`train.cancel`
 |---|---|---|---|---|
 | P0 下载→运行 | 部分落地 | `crates/llmgui-download`、`llmgui-server`、`llmgui-cli`、`llmgui-models`、`gui/`、`llmgui-backend-upstream` | `cargo test --workspace`；mock 与 upstream 真实推理冒烟通过（WSL llama-server）；真实 GGUF 下载 + `estimate` 通过；in-process FFI 仍受环境阻塞 | feat/llmgui-p0-p3 |
 | P1 快且省 | 进行中 | `crates/llmgui-scheduler`（槽位/取消）、`backend-llamacpp`（FFI 编译通过）、`backend-upstream`（`cache_prompt` 复用 llama-server 前缀缓存） | 取消/并发基础测试；in-process prefix cache、KV 量化门槛、4 并发压测未完成 | e027796 |
-| P2a 训练闭环 | 部分落地 | `python/llmgui_train`（config/data/estimate/export/worker/trainer）、CLI `train` 桥 | Python tests 全绿；真实 CPU LoRA 与 QLoRA 4-bit（bitsandbytes CPU）各 1 step 跑通并生成 `adapter_model.safetensors`；7B/GPU 性能与 GGUF 转换未验证 | a856002 |
+| P2a 训练闭环 | 部分落地 | `python/llmgui_train`（config/data/estimate/export/worker/trainer）、CLI `train` 桥 | Python tests 全绿；真实 CPU LoRA 与 QLoRA 4-bit（bitsandbytes CPU）各 1 step 跑通；adapter→native merge→GGUF f16→Q4_K_M→WSL llama-server 推理闭环已验证；7B/GPU 性能未验证 | a856002 |
 | P2b GUI | 已落地 | `gui/index.html`、`styles.css`、`app.js` | 静态自检 + 无浏览器 DOM/SSE 集成测试；`llmgui serve` 托管 200 | feat/llmgui-p0-p3 |
 | P3 硬化与发布 | 进行中 | Makefile、CI、ADR 门禁、CHANGELOG、`docs/adr/TEMPLATE.md` | `make check-docs`/clippy 通过；安装包/签名/性能长稳未完成 | feat/llmgui-p0-p3 |
 
-> 真实 llama.cpp 运行：Windows 11 build 26300 + Intel Arrow Lake 上，`llama_backend_init()` 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 和预编译 llama-cli 上均触发 `STATUS_ACCESS_VIOLATION`；FFI 编译与模型下载/解析正常。已新增 `upstream` 后端，通过 WSL 中的 `llama-server` 完成真实 Qwen2.5-0.5B 推理，并走通 `llmgui serve` OpenAI API；此外完成真实 CPU LoRA/QLoRA 4-bit 各 1 step 与 adapter safetensors 导出。in-process FFI 仍需在 Linux/新工具链上修复。
+> 真实 llama.cpp 运行：Windows 11 build 26300 + Intel Arrow Lake 上，`llama_backend_init()` 在 llama-cpp-2 0.1.159/0.1.160、自编译 C++ smoke 和预编译 llama-cli 上均触发 `STATUS_ACCESS_VIOLATION`；FFI 编译与模型下载/解析正常。已新增 `upstream` 后端，通过 WSL 中的 `llama-server` 完成真实 Qwen2.5-0.5B 推理，并走通 `llmgui serve` OpenAI API；此外完成真实 CPU LoRA/QLoRA 4-bit 训练、PEFT 原生 merge、GGUF 转换/量化，并用微调后的 GGUF 在 WSL 中推理。in-process FFI 仍需在 Linux/新工具链上修复。
 
 ## 19. 交接
 

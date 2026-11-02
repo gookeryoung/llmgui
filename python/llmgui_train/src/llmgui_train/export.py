@@ -85,7 +85,7 @@ def _lora_config_dict(config: Any) -> dict[str, Any]:
         "r": int(_get(config, "lora_r", 16)),
         "lora_alpha": int(_get(config, "lora_alpha", 32)),
         "lora_dropout": float(_get(config, "lora_dropout", 0.05)),
-        "target_modules": list(_get(config, "target_modules", ()) or []),
+        "target_modules": list(_get(config, "target_modules", ()) or []) or "all-linear",
         "bias": "none",
         "inference_mode": False,
         "base_model_name_or_path": _as_text(_get(config, "base_model", "")),
@@ -603,3 +603,50 @@ __all__ = [
     "run_tool",
     "write_json",
 ]
+
+def merge_adapter_peft(
+    base_model: str | Path,
+    adapter_dir: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    """Merge a PEFT adapter into a HuggingFace base model in-process.
+
+    This is the correct path for PEFT safetensors adapters produced by
+    :func:`export_adapter`; the external ``llama-export-lora`` tool only
+    understands GGUF LoRA files.
+    """
+
+    base = Path(base_model)
+    adapter = Path(adapter_dir)
+    output = Path(output_path)
+    if not base.exists():
+        raise ExportError(f"base model not found: {base}", code="invalid_argument")
+    if not adapter.exists():
+        raise ExportError(f"adapter directory not found: {adapter}", code="invalid_argument")
+
+    try:
+        import torch
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:  # pragma: no cover - dependency guard
+        raise ExportError(
+            f"native merge requires torch/transformers/peft: {exc}",
+            code="missing_dependency",
+            data={"missing": ["torch", "transformers", "peft"]},
+        ) from exc
+
+    output.mkdir(parents=True, exist_ok=True)
+    tokenizer = AutoTokenizer.from_pretrained(str(base), trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        str(base), torch_dtype=torch.bfloat16, trust_remote_code=True
+    )
+    merged = PeftModel.from_pretrained(model, str(adapter)).merge_and_unload()
+    merged.save_pretrained(str(output), safe_serialization=True)
+    tokenizer.save_pretrained(str(output))
+    files = sorted(p.name for p in output.iterdir() if p.is_file())
+    return {
+        "ok": True,
+        "tool": "peft.merge_and_unload",
+        "output": str(output),
+        "files": files,
+    }

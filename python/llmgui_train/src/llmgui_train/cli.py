@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from collections.abc import Sequence
 from typing import Any
@@ -88,7 +89,7 @@ def cmd_export_gguf(args: argparse.Namespace) -> int:
             args.model_dir,
             args.output,
             outtype=args.outtype,
-            tool=args.tool,
+            tool=shlex.split(args.tool) if args.tool else None,
         )
     except export_module.ExportError as exc:
         _dump(exc.to_dict(), )
@@ -99,12 +100,19 @@ def cmd_export_gguf(args: argparse.Namespace) -> int:
 
 def cmd_merge(args: argparse.Namespace) -> int:
     try:
-        result = export_module.merge_adapter(
-            args.base_model,
-            args.adapter_dir,
-            args.output,
-            tool=args.tool,
-        )
+        if getattr(args, "native", False):
+            result = export_module.merge_adapter_peft(
+                args.base_model,
+                args.adapter_dir,
+                args.output,
+            )
+        else:
+            result = export_module.merge_adapter(
+                args.base_model,
+                args.adapter_dir,
+                args.output,
+                tool=shlex.split(args.tool) if args.tool else None,
+            )
     except export_module.ExportError as exc:
         _dump(exc.to_dict())
         return 2
@@ -161,6 +169,11 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--adapter-dir", required=True)
     merge.add_argument("--output", required=True)
     merge.add_argument("--tool", default=None, help="path to llama-export-lora")
+    merge.add_argument(
+        "--native",
+        action="store_true",
+        help="use PEFT merge_and_unload instead of the external GGUF LoRA tool",
+    )
     merge.set_defaults(func=cmd_merge)
 
     worker = sub.add_parser("worker", help="run the stdio NDJSON JSON-RPC worker")
@@ -170,6 +183,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # External tools (tqdm/llama.cpp) may emit U+FFFD on Windows consoles with
+    # a GBK code page; never let JSON reporting crash after a successful export.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
