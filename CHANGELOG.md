@@ -9,8 +9,8 @@
 ### Added
 
 - Rust workspace：`llmgui-core`、`llmgui-models`、`llmgui-download`、`llmgui-backend-api`、
-  `llmgui-backend-mock`、`llmgui-backend-llamacpp`、`llmgui-scheduler`、`llmgui-server`、
-  `llmgui-cli`、`llmgui-bench`。
+  `llmgui-backend-mock`、`llmgui-backend-llamacpp`、`llmgui-backend-upstream`、`llmgui-scheduler`、
+  `llmgui-server`、`llmgui-cli`、`llmgui-bench`。
 - 国内源下载：ModelScope 列表/下载、hf-mirror/Gitee AI HF 兼容源、分片 Range、断点续传、
   流式 SHA256、CAS、硬链接快照、`pull/list` CLI；本地 HTTP fixture 34 个测试。
 - GGUF metadata 解析与显存预估（权重 + KV + compute + runtime），`llmgui estimate`。
@@ -32,10 +32,11 @@
 
 ### Known limitations
 
-- Rust 调度器目前提供并发槽位与取消，**尚未实现 llama.cpp KV prefix cache 与逐步 batch 交织**；
-  `llmglui-backend-llamacpp` 每次请求新建 context。
+- Rust 调度器目前提供并发槽位与取消；upstream 通过 `cache_prompt` 使用 llama-server 前缀缓存，
+  **in-process llama.cpp 的 KV prefix cache 与逐步 batch 交织尚未实现**；`llmglui-backend-llamacpp`
+  每次请求新建 context。
 - llama.cpp 后端在部分旧版 MSVC 工具链下运行期初始化崩溃（`STATUS_ACCESS_VIOLATION`），
-  需要 VS2022 工具链；本轮在 MinGW/GNU 路线上继续验证。默认 mock 后端不受影响。
-- Python 真实 QLoRA 训练路径需要安装 `torch/transformers/peft/trl`，本轮环境未安装，
-  仅覆盖无依赖错误路径、数据/导出/协议。
+  需要 VS2022 新工具链或 Linux/WSL；upstream 后端已验证真实推理，mock 后端不受影响。
+- Python 真实 QLoRA（4-bit/bnb）训练路径需要 CUDA + bitsandbytes；本轮已用 CPU torch 验证
+  真实 LoRA SFT 与 adapter 导出，QLoRA 4-bit 未验证。
 - Tauri 桌面壳未构建，GUI 以本地 Web 形式交付；多卡、DPO、speculative、国产卡为 post-v1.0。
