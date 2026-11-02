@@ -173,6 +173,13 @@ cargo run -p llmgui-desktop -- -- serve --backend upstream `
 cargo run -p llmgui-desktop -- --no-spawn
 ```
 
+`make desktop` 支持两个变量：`DESKTOP_ARGS` 原样透传（接 7B 模型用），`DESKTOP_ENV` 追加环境。
+
+```bash
+LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 \
+make desktop DESKTOP_ARGS="serve --backend upstream --model /mnt/c/<user>/llmgui-home/jobs/merged-7b-q4km.gguf"
+```
+
 WSLg / 无 GPU 直通的 Linux 上给 WebKit 加软件渲染（否则可能出现 EGL/DMA-BUF 报错或空白窗口）：
 
 ```bash
