@@ -24,19 +24,25 @@ validation, estimate, export manifests, protocol) keeps working.
 
 ## Install
 
+Packaging lives in the repository root `pyproject.toml`.
+
 ```bash
 # from the repository root
-pip install -e python/llmgui_train            # core, no ML deps
-pip install -e "python/llmgui_train[cuda]"    # torch + transformers + peft + trl + bnb
+pip install -e .            # core, no ML deps
+pip install -e ".[cuda]"    # torch + transformers + peft + trl + bnb
 ```
 
 ## Usage
 
+`pip install` adds two console scripts (they are thin wrappers around
+`python -m llmgui_train ...`, which keeps working without installing):
+
 ```bash
-python -m llmgui_train hello
-python -m llmgui_train estimate --model 7b --method qlora --seq-len 2048
-python -m llmgui_train train --config train.json
-python -m llmgui_train worker          # what the Rust CLI spawns
+llmgui-train hello
+llmgui-train estimate --model 7b --method qlora --seq-len 2048
+llmgui-train train --config train.json
+llmgui-train worker                    # what the Rust CLI spawns
+llmgui-train-worker --dry-run          # same worker, direct entry point
 ```
 
 The worker protocol:

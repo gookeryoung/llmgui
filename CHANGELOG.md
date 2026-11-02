@@ -27,6 +27,9 @@
 - Python 训练包：配置、数据（Alpaca/ShareGPT/OpenAI messages）、assistant mask、packing、
   显存估算、PEFT adapter/GGUF 导出封装、stdio NDJSON JSON-RPC worker、QLoRA lazy 训练器；
   200+ 个测试、>92% 覆盖率。
+- 打包入口：根 `pyproject.toml` 统一声明 Python 分发包（hatchling）与命令入口
+  `llmgui-train`、`llmgui-train-worker`；仓库根 `pip install -e ".[cuda]"` 后即可直接调用，
+  不再需要 `python -m llmgui_train.cli`。
 - GPU QLoRA 4-bit：RTX 5090 D 上跑通 0.5B 与 7B（4-bit NF4、all-linear、gradient
   checkpointing）；7B 5 step（含加载/导出）约 19s，loss 5.08 → 3.04，manifest 记录
   `torch 2.9.1+cu128`、`device=cuda`。7B adapter → merge → GGUF f16（14.2GB）→

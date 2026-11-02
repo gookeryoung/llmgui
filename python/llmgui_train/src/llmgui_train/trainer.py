@@ -25,8 +25,8 @@ REQUIRED_PACKAGES = ("torch", "transformers", "peft")
 OPTIONAL_PACKAGES = ("trl", "datasets", "accelerate", "safetensors", "bitsandbytes")
 
 INSTALL_HINT = (
-    "install the training extras from the repository, e.g. "
-    "`pip install -e python/llmgui_train[cuda]` (see python/llmgui_train/pyproject.toml)"
+    "install the training extras from the repository root, e.g. "
+    "`pip install -e \".[cuda]\"` (see pyproject.toml)"
 )
 
 

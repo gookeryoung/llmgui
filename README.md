@@ -92,8 +92,8 @@ cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf>
 ## 微调
 
 ```powershell
-pip install -e python/llmgui_train          # 无 ML 依赖
-pip install -e "python/llmgui_train[cuda]"  # torch/transformers/peft/trl/bnb
+pip install -e .          # 无 ML 依赖，提供 `llmgui-train` / `llmgui-train-worker` 命令
+pip install -e ".[cuda]"  # torch/transformers/peft/trl/bnb
 
 # 真实 CPU LoRA / QLoRA 4-bit 冒烟（已各验证 1 step，输出 adapter_model.safetensors）
 cargo run -p llmgui-cli -- train --config examples/train_cpu.json
@@ -118,13 +118,13 @@ CPU 推理约 **12.4 tok/s**。
 
 ```powershell
 # 1. 原生 PEFT merge（比 llama-export-lora 更适合 HF adapter）
-python -m llmgui_train.cli merge `
+llmgui-train merge `
   --base-model C:/Users/me/llmgui-home/models/Qwen2.5-0.5B-Instruct `
   --adapter-dir C:/Users/me/llmgui-home/jobs/sft-cpu `
   --output C:/Users/me/llmgui-home/jobs/merged-cpu --native
 
 # 2. HF -> GGUF（指向 llama.cpp 的 convert_hf_to_gguf.py）
-python -m llmgui_train.cli export-gguf `
+llmgui-train export-gguf `
   --model-dir C:/Users/me/llmgui-home/jobs/merged-cpu `
   --output C:/Users/me/llmgui-home/jobs/merged-f16.gguf `
   --tool "python C:/path/to/llama.cpp/convert_hf_to_gguf.py"
@@ -134,7 +134,7 @@ python -m llmgui_train.cli export-gguf `
 也可用封装命令：
 
 ```powershell
-python -m llmgui_train.cli quantize `
+llmgui-train quantize `
   --input C:/Users/me/llmgui-home/jobs/merged-f16.gguf `
   --output C:/Users/me/llmgui-home/jobs/merged-q4km.gguf `
   --qtype Q4_K_M `

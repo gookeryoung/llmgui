@@ -1,9 +1,65 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
 [project]
 name = "llmgui"
 version = "0.1.0"
 description = "Local LLM runtime and fine-tuning framework"
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [{ name = "llmgui contributors" }]
+keywords = ["llm", "qlora", "lora", "fine-tuning", "llama.cpp"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = []
+
+[project.optional-dependencies]
+# CPU / generic training stack.
+train = [
+  "torch>=2.4",
+  "transformers>=4.44",
+  "peft>=0.12",
+  "datasets>=2.20",
+  "accelerate>=0.33",
+  "safetensors>=0.4",
+  "PyYAML>=6.0",
+]
+# CUDA (or ROCm) training stack including 4/8-bit quantization.
+cuda = [
+  "torch>=2.4",
+  "transformers>=4.44",
+  "peft>=0.12",
+  "trl>=0.9",
+  "datasets>=2.20",
+  "accelerate>=0.33",
+  "safetensors>=0.4",
+  "bitsandbytes>=0.43",
+  "PyYAML>=6.0",
+]
+yaml = ["PyYAML>=6.0"]
+
+[project.scripts]
+llmgui-train = "llmgui_train.cli:main"
+llmgui-train-worker = "llmgui_train.worker:main"
+
+[project.urls]
+Repository = "https://github.com/llmgui/llmgui"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/llmgui_train/src/llmgui_train"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "python/llmgui_train/src/llmgui_train",
+  "python/llmgui_train/README.md",
+  "README.md",
+  "pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["python/tests"]
