@@ -87,10 +87,7 @@ pub async fn run(
         .collect();
     decode_samples.sort_by(f64::total_cmp);
     let median_decode_tps = median(&decode_samples);
-    let target_pass = match (target, median_decode_tps) {
-        (Some((min, max)), Some(value)) => Some(value >= min && value <= max),
-        _ => None,
-    };
+    let target_pass = target_met(target, median_decode_tps);
 
     BenchReport {
         backend: "scheduler".to_string(),
@@ -170,6 +167,15 @@ fn median(sorted: &[f64]) -> Option<f64> {
     }
 }
 
+/// Throughput is a floor goal: reaching `target_min` passes. `target_max` is a
+/// reference upper bound (headroom), so exceeding it is not a failure.
+fn target_met(target: Option<(f64, f64)>, median: Option<f64>) -> Option<bool> {
+    match (target, median) {
+        (Some((min, _)), Some(value)) => Some(value >= min),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +186,14 @@ mod tests {
         assert_eq!(median(&[42.0]), Some(42.0));
         assert_eq!(median(&[1.0, 2.0, 3.0]), Some(2.0));
         assert_eq!(median(&[1.0, 2.0, 3.0, 4.0]), Some(2.5));
+    }
+
+    #[test]
+    fn target_met_only_checks_lower_bound() {
+        assert_eq!(target_met(Some((90.0, 120.0)), Some(240.6)), Some(true));
+        assert_eq!(target_met(Some((90.0, 120.0)), Some(90.0)), Some(true));
+        assert_eq!(target_met(Some((90.0, 120.0)), Some(89.9)), Some(false));
+        assert_eq!(target_met(None, Some(240.6)), None);
+        assert_eq!(target_met(Some((90.0, 120.0)), None), None);
     }
 }

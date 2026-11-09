@@ -9,13 +9,19 @@
 - 新增 ADR 0004《Qwen3-Coder-30B-A3B 单用户吞吐 90–120 tok/s》（Accepted）
   与需求卡片 0004：以 llama.cpp CUDA+FA 为主路径，新增显式 `turbo` 性能档
   （ngl 999 / FA / KV q4_0 / batch 2048 / ubatch 512 / threads 8），TabbyAPI 经
-  `upstream` 外接；bench 增加单流 decode 与 [90,120] 目标判定。
+  `upstream` 外接；bench 增加单流 decode 与 ≥90 达标判定（120 为参考上限）。
 - 新增 ADR 0002《模型管理（模型库 / 发现下载 / 运行时生命周期 / 训练产物）》（Proposed，待评审）
   与需求卡片 0003、调研 `docs/research/model-management.md`：参考 LM Studio / Unsloth 规划
   注册表驱动的模型库、任务化下载、加载/卸载/切换/JIT/TTL、预设/别名与训练产物派生注册。
 
 ### Fixed
 
+- bench 的 `target_pass` 只校验下限：`median_decode_tps >= target_min` 即通过，
+  `target_max` 仅作参考上限；实测 232.5 tok/s 不再因「超过 120」被误判为失败。
+- `llama-server` 的 flash attention 参数改为 `-fa on`：新版 llama.cpp 把 `-fa` 解析为
+  `on|off|auto` 枚举，裸 `-fa` 会吞掉后面的 `-ctk` 并以「unknown value for
+  --flash-attn」启动失败（实测 LM Studio CUDA 构建）。CLI `--start-wsl`、`make
+  llama-server-turbo` 与 README 同步。
 - `upstream` 后端健康检查失败时给出可操作提示（启动 llama-server/TabbyAPI 或设置
   `LLMGUI_UPSTREAM_URL`），不再只抛 `Connection refused`；README 补充 bench 前置条件
   与 Coder-30B 的 `turbo` llama-server 启动命令。
@@ -44,7 +50,7 @@
   - 新增 profile 展开、参数映射、旧配置兼容与加载路径单测。
 - ADR 0004 P1：吞吐验证与外接引擎 (ADR 0004 P1)：
   - `--start-wsl` 的 `llama-server` 命令按 `turbo` 追加
-    `-ngl 999 -fa -ctk/-ctv q4_0 --no-context-shift -b 2048 -ub 512 -tb 8`，
+    `-ngl 999 -fa on -ctk/-ctv q4_0 --no-context-shift -b 2048 -ub 512 -tb 8`，
     `custom/balanced` 保持原命令；
   - upstream 支持 `LLMGUI_UPSTREAM_MODEL` 与 `LLMGUI_UPSTREAM_KIND`
     （`llama-server` 才发送 `cache_prompt`），并可接 TabbyAPI；
@@ -56,6 +62,11 @@
   - 模型详情新增「性能档」下拉（custom / balanced / turbo），加载与保存默认值时
     透传 `profile`，`turbo` 覆盖显式 ctx/KV；
   - `gui/README.md` 与 README 补充 Coder-30B、turbo 验收与 TabbyAPI 说明。
+- ADR 0004 P2b：5090D 实测归档 (ADR 0004 P2b)：
+  - RTX 5090D 32GB + CUDA12 llama.cpp + Coder-30B Q4_K_M + turbo 参数，单流 5 次
+    decode 中位数 **232.5 tok/s**（227.5–236.3），TTFT 22–51 ms，显存峰值 25,751 MiB；
+  - 原始 JSON 与复现说明归档到 `docs/bench/0004-qwen3-coder-30b-turbo.{json,md}`，
+    ADR §13.1 与落地状态回填实测结果。
 - ADR 0002 模型管理落地（P0/P1 完成，P2a/P2b/P3 部分）(ADR 0002 P0/P1/P2a/P2b/P3)：
   - 注册表驱动的模型库 `$LLMGUI_HOME/registry.json`（原子写 + 文件锁 + 可由 manifest 重建），
     扫描/导入 GGUF、详情与 24/32GB fit 矩阵、别名/加载默认值/预设、SHA256 校验、删除与引用检查；

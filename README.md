@@ -171,14 +171,16 @@ cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf> --
 > 变量可覆盖：`PORT=18080`、`UPSTREAM_URL=http://127.0.0.1:5000`（TabbyAPI）、
 > `ITERATIONS` / `WARMUP` / `MAX_TOKENS` / `TARGET_MIN` / `TARGET_MAX`、
 > `LLAMA_SERVER=/path/to/llama-server`。`make llama-server-turbo` 展开的引擎参数为
-> `-ngl 999 -fa -ctk q4_0 -ctv q4_0 -c 8192 --no-context-shift -b 2048 -ub 512 -t 8 -tb 8`，
+> `-ngl 999 -fa on -ctk q4_0 -ctv q4_0 -c 8192 --no-context-shift -b 2048 -ub 512 -t 8 -tb 8`，
 > 手写命令时这些 flag 必须一致，否则测到的不是 turbo 档。
 >
 > `bench` 不会自行拉起服务。用 TabbyAPI 时把 `LLMGUI_UPSTREAM_KIND` 设为 `tabbyapi`；
 > 只验证 bench harness 本身可用 `make bench-runtime`（mock）。连不上时报
 > `upstream health failed ... Connection refused` 即表示该端口没有服务。
 >
-> 报告中的 `median_decode_tps` 与 `target_pass` 是验收字段；未在 5090D 上实测前不写成已达成。
+> 报告中的 `median_decode_tps` 与 `target_pass` 是验收字段：中位数 ≥ `--target-min` 即通过，
+> `--target-max` 仅作参考上限（超出记为余量）。5090D 实测 232.5 tok/s，见
+> `docs/bench/0004-qwen3-coder-30b-turbo.md`。
 
 > **Linux/WSL 已验证**：同一代码在 WSL Ubuntu 24.04 构建后，单流 87 tok/s、TTFT 25ms，
 > 同 prompt 两请求命中 in-process prefix cache 1 次；服务地址 `/healthz`、`/metrics` 正常。

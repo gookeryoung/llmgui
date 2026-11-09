@@ -175,10 +175,10 @@ enum Commands {
         warmup: usize,
         #[arg(long, default_value_t = 64)]
         max_tokens: u32,
-        /// Lower bound for median decode tok/s.
+        /// Pass threshold for median decode tok/s.
         #[arg(long)]
         target_min: Option<f64>,
-        /// Upper bound for median decode tok/s.
+        /// Reference upper bound; exceeding it is headroom, not a failure.
         #[arg(long)]
         target_max: Option<f64>,
         #[arg(long, default_value = "请用一句话介绍你自己。")]
@@ -763,6 +763,9 @@ fn llama_server_args(model_wsl: &str, port: u16, params: &ProfileParams) -> Vec<
             "-ngl".to_string(),
             "999".to_string(),
             "-fa".to_string(),
+            // Newer llama.cpp builds parse `-fa` as an enum (`on|off|auto`);
+            // a bare `-fa` swallows the next flag, so pass the value explicitly.
+            "on".to_string(),
             "-ctk".to_string(),
             params.kv_type.clone(),
             "-ctv".to_string(),
@@ -1167,7 +1170,7 @@ mod tests {
             "-t 8",
             "-tb 8",
             "-ngl 999",
-            "-fa",
+            "-fa on",
             "-ctk q4_0",
             "-ctv q4_0",
             "--no-context-shift",

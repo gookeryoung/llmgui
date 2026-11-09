@@ -1,0 +1,64 @@
+{
+  "backend": "scheduler",
+  "model": "local",
+  "concurrency": 1,
+  "iterations": 5,
+  "warmup": 3,
+  "prompt_tokens": 0,
+  "completion_tokens": 1280,
+  "wall_ms": 5595,
+  "aggregate_tokens_per_second": 228.77569258266308,
+  "median_decode_tps": 232.45214220601642,
+  "target_min": 90.0,
+  "target_max": 120.0,
+  "target_pass": true,
+  "decode_samples": [
+    227.47546833184657,
+    230.14440433212997,
+    232.45214220601642,
+    235.239852398524,
+    236.32993512511584
+  ],
+  "per_request": [
+    {
+      "request_id": "bench-0",
+      "ttft_ms": 21,
+      "total_ms": 1129,
+      "completion_tokens": 256,
+      "decode_tokens_per_second": 230.14440433212997,
+      "finish_reason": "length"
+    },
+    {
+      "request_id": "bench-1",
+      "ttft_ms": 21,
+      "total_ms": 1142,
+      "completion_tokens": 256,
+      "decode_tokens_per_second": 227.47546833184657,
+      "finish_reason": "length"
+    },
+    {
+      "request_id": "bench-2",
+      "ttft_ms": 20,
+      "total_ms": 1099,
+      "completion_tokens": 256,
+      "decode_tokens_per_second": 236.32993512511584,
+      "finish_reason": "length"
+    },
+    {
+      "request_id": "bench-3",
+      "ttft_ms": 20,
+      "total_ms": 1104,
+      "completion_tokens": 256,
+      "decode_tokens_per_second": 235.239852398524,
+      "finish_reason": "length"
+    },
+    {
+      "request_id": "bench-4",
+      "ttft_ms": 20,
+      "total_ms": 1117,
+      "completion_tokens": 256,
+      "decode_tokens_per_second": 232.45214220601642,
+      "finish_reason": "length"
+    }
+  ]
+}

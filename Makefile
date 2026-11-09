@@ -89,7 +89,7 @@ llama-server-turbo:
 	  exit 1; \
 	fi
 	$(LLAMA_SERVER) -m $(MODEL) \
-	  -ngl 999 -fa -ctk q4_0 -ctv q4_0 \
+	  -ngl 999 -fa on -ctk q4_0 -ctv q4_0 \
 	  -c 8192 --no-context-shift -b 2048 -ub 512 \
 	  -t 8 -tb 8 --host 127.0.0.1 --port $(PORT)
 

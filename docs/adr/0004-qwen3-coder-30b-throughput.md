@@ -4,7 +4,7 @@
 - 日期：2026-11-09
 - 关联需求卡片：[0004-qwen3-coder-30b-throughput](../requirements/0004-qwen3-coder-30b-throughput.md)
 - 关联调研：[runtime](../research/runtime.md) · [model-management](../research/model-management.md)
-- 决策摘要：以 GGUF + llama.cpp CUDA+FA 为主路径，新增显式 `turbo` 性能档（ngl 999 / FA / KV q4_0 / batch 2048 / ubatch 512 / threads 8）；ExLlamaV2 + TabbyAPI 作为 OpenAI 兼容 `upstream` 外接，不纳入模型下载与 registry；用单用户 decode tok/s 与 [90,120] 区间判定验收。
+- 决策摘要：以 GGUF + llama.cpp CUDA+FA 为主路径，新增显式 `turbo` 性能档（ngl 999 / FA / KV q4_0 / batch 2048 / ubatch 512 / threads 8）；ExLlamaV2 + TabbyAPI 作为 OpenAI 兼容 `upstream` 外接，不纳入模型下载与 registry；用单用户 decode tok/s 判定验收（5 次中位数 ≥90 通过，120 为参考上限）。
 
 ## 1. 背景与问题
 
@@ -42,7 +42,7 @@
 - G1：推荐目录与 GUI 静态目录新增 `qwen3-coder-30b-a3b-q4km`，可用现有 `pull` 下载并入库。
 - G2：新增 `turbo` 性能档，一条命令把 C6 的参数展开到 in-process 与外部 `llama-server` 两条路径。
 - G3：预算内显存可加载（32GB 卡，ctx 8192，KV q4_0），加载前显存闸门使用同一套 profile 参数。
-- G4：`bench` 输出单用户 decode tok/s，并能对 [90,120] 区间给出 pass/fail 与原始 JSON。
+- G4：`bench` 输出单用户 decode tok/s，并对 `>= target_min`（90）给出 pass/fail 与原始 JSON；`target_max`（120）仅作参考上限。
 - G5：TabbyAPI 可经 `upstream` 接入，模型名、健康检查与 `cache_prompt` 行为可配置；EXL2 不进入本项目模型管理。
 - G6：默认 `balanced` 行为不变，全部改动有单测与文档。
 
@@ -208,7 +208,7 @@ role = "coder"
 - `concurrency = 1`、`iterations >= 5`、`warmup` 次不计入（默认 3）。
 - 测量批次按 `concurrency` 分批执行，`concurrency = 1` 时严格串行。
 - 取 5 次 `decode_tokens_per_second` 的中位数。
-- 中位数落在 `[90, 120]` 为 pass；否则输出实测值与差距，不自动调参。
+- 中位数 `>= target_min`（90）为 pass；`target_max`（120）是参考上限，超出记为余量而非失败；未达标时输出实测值与差距，不自动调参。
 
 upstream 的 token 计数优先使用最终 `usage.completion_tokens`，缺失时按 SSE delta 计数并在报告中标记 `counted=delta`。
 
@@ -296,15 +296,15 @@ llmgui bench --profile turbo --iterations 5 --concurrency 1 --max-tokens 256 \
 |---|---|---|
 | P0 | 推荐目录、turbo profile、`LoadConfig` 扩展、in-process FA/ubatch/threads 映射、显存闸门复用、单测 | `serve --profile turbo` 打印 effective 参数；单测全绿；默认 balanced 行为不变 |
 | P1 | `llama-server` 参数构造器、upstream 模型名/kind、bench decode 口径与目标判定、TabbyAPI 文档 | turbo 启动命令含全部 flag；bench 输出 `target_pass`；TabbyAPI 流式生成通过 |
-| P2 | GUI profile 选择与回显、README/文档收尾、5090D 实测报告归档 | GUI 可切换 turbo；文档含实测四元组；`make flow` 全绿 |
+| P2 | GUI profile 选择与回显、README/文档收尾、5090D 实测报告归档 | GUI 可切换 turbo；文档含实测四元组；`make flow` 全绿；中位数 232.5 tok/s |
 
 ## 13. 性能预算
 
-基准条件（目标，待实测）：RTX 5090D 32GB、CUDA 12.8+、Qwen3-Coder-30B-A3B-Instruct Q4_K_M、ctx 8192、KV q4_0、FA on、ngl 999、`slots=1`、输出 256 token、warmup 3、5 次中位数。
+基准条件（2026-11-09 实测，见 §13.1）：RTX 5090D 32GB、CUDA 12.8+、Qwen3-Coder-30B-A3B-Instruct Q4_K_M、ctx 8192、KV q4_0、FA on、ngl 999、`slots=1`、输出 256 token、warmup 3、5 次中位数。
 
 | 指标 | 目标 | 口径 |
 |---|---|---|
-| 单用户 decode | **90–120 tok/s** | 首 token 之后按 `decode_tokens_per_second` 计算 |
+| 单用户 decode | **≥90 tok/s**（120 为参考上限；实测 232.5） | 首 token 之后按 `decode_tokens_per_second` 计算 |
 | TTFT @ 512 prompt | 记录实测，不设门槛 | 含 tokenize + prefill |
 | 显存峰值 | ≤ 32GB，目标 ≤ 24GB | NVML 峰值 |
 | 16k ctx 参考 | 记录实测 | TabbyAPI `max_seq_len: 16384`；不作为主门槛 |
@@ -320,7 +320,26 @@ llmgui bench --profile turbo --iterations 5 --concurrency 1 --max-tokens 256 \
 | runtime/context | ≈0.6GB |
 | 合计 @ 8192 | ≈21–22GB（估算，以 `llmgui estimate` 为准） |
 
-> 以上为预算，不是实测结果；实测报告必须附原始 JSON 与硬件/版本/参数。
+> 估算行为预算；实测结果见 §13.1，原始 JSON 在 [docs/bench/0004-qwen3-coder-30b-turbo.json](../bench/0004-qwen3-coder-30b-turbo.json)。
+
+### 13.1 实测结果（2026-11-09）
+
+环境：RTX 5090D 32GB、驱动 616.56、Windows + WSL2 `networkingMode=mirrored`；引擎为
+LM Studio 自带 `llama-server.exe`（CUDA12 build 2.53.0，llama.cpp commit `3109914`），参数
+`-ngl 999 -fa on -ctk q4_0 -ctv q4_0 -c 8192 --no-context-shift -b 2048 -ub 512 -t 8 -tb 8`。
+
+| 项 | 实测 |
+|---|---|
+| decode tok/s（5 次中位数） | **232.5**（227.5 / 230.1 / 232.5 / 235.2 / 236.3） |
+| TTFT | 22–51 ms |
+| 显存峰值 | 25,751 MiB（整卡口径，含桌面约 4 GiB） |
+| `target_pass` | true（`target_min=90`） |
+
+冷启动首轮中位数 240.6（样本 134.3 / 161.2 / 240.6 / 245.2 / 253.2），第二轮回落后稳定在
+227–236。原始 JSON 与复现命令见 [docs/bench/0004-qwen3-coder-30b-turbo.md](../bench/0004-qwen3-coder-30b-turbo.md)。
+
+> 引擎为第三方（LM Studio）Windows CUDA 构建，不是本项目自编译的 Linux llama.cpp；
+> 结论对同参数同硬件成立，自编译构建仍需复验。
 
 ## 14. 风险与缓解
 
@@ -344,13 +363,13 @@ llmgui bench --profile turbo --iterations 5 --concurrency 1 --max-tokens 256 \
 | D3 | 量化 KV | turbo 用 q4_0 + FA；显式 `disabled` 时拒绝量化 KV，`auto` 保留 llama.cpp 自动启用 | 兼顾性能与旧配置兼容 | q4_0 + 强制关闭 FA、默认 f16 | §7.3 |
 | D4 | GPU offload | turbo 显式 `ngl=999`；`balanced` 保持旧语义 | 避免改变默认行为 | 全局把 -1 改成全量 | §7.2/§7.3 |
 | D5 | TabbyAPI 兼容 | 模型名可配置；`cache_prompt` 仅 llama-server kind 发送 | 兼容两家 API 差异 | 硬编码 `local`、对所有引擎发非标字段 | §7.5 |
-| D6 | 吞吐口径 | 单流 decode（排除 TTFT）+ 5 次中位数 + [90,120] 判定 | 与「单用户」目标一致 | 用含 prefill 的 wall-clock 吞吐 | §7.7 |
+| D6 | 吞吐口径 | 单流 decode（排除 TTFT）+ 5 次中位数 + ≥90 判定（120 为参考上限） | 与「单用户」目标一致 | 用含 prefill 的 wall-clock 吞吐 | §7.7 |
 | D7 | 验收硬件 | RTX 5090D 32GB、ctx 8192、输出 256 | 项目既有验收机与用户参数 | 对所有 GPU 承诺 | §13 |
 | D8 | EXL2 管理 | 不纳入本项目下载/登记/加载 | 保持 GGUF 唯一推理格式 | 双格式模型管理 | §7.5/§9 |
 
 ## 16. 后果
 
-**正面**：一条命令把用户给定的 llama.cpp 参数落地；默认行为不被破坏；TabbyAPI 零新增后端即可接入；bench 能直接证明是否达到 90–120 tok/s。
+**正面**：一条命令把用户给定的 llama.cpp 参数落地；默认行为不被破坏；TabbyAPI 零新增后端即可接入；bench 能直接证明是否达到 ≥90 tok/s（实测 232.5）。
 
 **负面**：`turbo` 与 `balanced` 的参数差异需要文档解释；q4_0 KV 有质量风险；目标硬件之外无法承诺。
 
@@ -368,15 +387,15 @@ llmgui bench --profile turbo --iterations 5 --concurrency 1 --max-tokens 256 \
 | P0 | 已落地 | `models/v0.toml`、`gui/app.js`、`crates/llmgui-core/src/config.rs`、`crates/llmgui-backend-api/src/lib.rs`、`crates/llmgui-models/src/library.rs`、`crates/llmgui-server/src/runtime.rs`、`crates/llmgui-server/src/admin.rs`、`crates/llmgui-backend-llamacpp/src/real.rs`、`crates/llmgui-cli/src/main.rs` | `cargo test -p llmgui-core -p llmgui-backend-api -p llmgui-models -p llmgui-server`（profile/映射/加载） | — |
 | P1 | 已落地 | `crates/llmgui-cli/src/main.rs`（`llama_server_args` / bench）、`crates/llmgui-backend-upstream/src/lib.rs`、`crates/llmgui-backend-api/src/lib.rs`、`crates/llmgui-bench/src/lib.rs`、`README.md` | `cargo test --workspace`（参数构造、decode 统计、upstream kind） | — |
 | P2a | 已落地 | `gui/app.js`（性能档下拉 + 加载/默认值透传）、`README.md`、`gui/README.md`、`CHANGELOG.md` | `node --check gui/app.js`、`make check-docs` | — |
-| P2b | 未开始 | 待 5090D 实测报告归档 | — | — |
+| P2b | 已落地 | `docs/bench/0004-qwen3-coder-30b-turbo.md`、`docs/bench/0004-qwen3-coder-30b-turbo.json` | `make bench-turbo`（5090D，中位数 232.5 tok/s，`target_pass=true`；冷启动首轮 240.6） | — |
 | P3 | 不适用 | — | — | — |
 
 ## 19. 交接
 
-- 当前阶段：P0 / P1 / P2a 已落地，P2b（5090D 实测归档）待开始。
-- 已完成：需求卡片 0004；推荐目录新增 Coder-30B；`RuntimeProfile`/`FlashAttention`/`ProfileParams` 与 `LoadDefaults.profile_params()`；`LoadConfig` 的 FA/ubatch/threads_batch；in-process 映射与量化 KV 校验；CLI `--profile`；admin load/defaults 接受 profile；`llama-server` turbo 参数构造器；upstream 模型名与 `LLMGUI_UPSTREAM_KIND`；bench 分批执行、warmup、`median_decode_tps` 与 `[90,120]` 判定；TabbyAPI 文档；单测覆盖展开、映射、参数构造、decode 统计与 upstream kind。
-- 下一步：P2b 在 5090D 32GB 上跑 `bench --concurrency 1 --iterations 5 --warmup 3 --max-tokens 256 --target-min 90 --target-max 120`，归档原始 JSON、显存峰值、llama.cpp commit 与 CUDA 版本；未达标不改口径，先记录差距。
-- 已知坑：Windows in-process `llama_backend_init()` 仍可能崩溃（ADR 0001 §18），Windows 验收优先走 `upstream`/WSL；本环境缺 libclang，`--features llama` 未能本地编译验证，需在目标机/CI 验证；5090D 的 sm_120 FA 内核需实测；TabbyAPI 不支持 GGUF，EXL2 模型需用户自备；bench 仅在目标机运行，未实测前 `target_pass` 只代表配置可执行，不代表已达标。
+- 当前阶段：P0 / P1 / P2a / P2b 全部落地，无待办。
+- 已完成：需求卡片 0004；推荐目录新增 Coder-30B；`RuntimeProfile`/`FlashAttention`/`ProfileParams` 与 `LoadDefaults.profile_params()`；`LoadConfig` 的 FA/ubatch/threads_batch；in-process 映射与量化 KV 校验；CLI `--profile`；admin load/defaults 接受 profile；`llama-server` turbo 参数构造器（`-fa on`）；upstream 模型名与 `LLMGUI_UPSTREAM_KIND`；bench 分批执行、warmup、`median_decode_tps` 与 ≥90 判定；TabbyAPI 文档；`make llama-server-turbo` / `bench-turbo` / `serve-turbo`；5090D 实测归档（中位数 232.5 tok/s）。
+- 下一步：无。若要复验，用自编译 Linux CUDA llama.cpp 重跑 `make bench-turbo`，对比本 ADR §13.1 的 232.5 tok/s。
+- 已知坑：Windows in-process `llama_backend_init()` 仍可能崩溃（ADR 0001 §18），Windows 验收优先走 `upstream`/WSL；本环境缺 libclang，`--features llama` 未能本地编译验证；§13.1 的引擎是 LM Studio 随包的 Windows CUDA 构建，不是本项目自编译产物；TabbyAPI 不支持 GGUF，EXL2 模型需用户自备；新版 llama.cpp 的 `-fa` 必须带 `on|off|auto`，裸 `-fa` 会吞掉下一个 flag。
 
 ## 20. 参考
 

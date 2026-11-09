@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | C1 | `模型：Qwen3-Coder-30B-A3B MoE Q4_K_M` | 推荐目录新增 `qwen3-coder-30b-a3b-q4km`：repo `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`、文件 `Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf`、体积 18,556,689,568 B、许可 Apache-2.0；GUI 静态目录同步 | `models/v0.toml`、`gui/app.js` | `llmgui models search coder` 可见；`pull` 后 `models show` 量化/体积正确 |
 | C2 | `（或 EXL2 4.5bpw）` | EXL2 不进入 GGUF 推荐目录、下载器与 registry；作为 TabbyAPI 外部模型，仅提供接入与校验说明 | `docs/`、`crates/llmgui-backend-upstream` | 文档给出 EXL2 目录约定与 `/v1/models` 校验；无 EXL2 下载/登记代码 |
-| C3 | `吞吐达到 90–120token` | 定义单用户 decode 吞吐口径：RTX 5090D 32GB、Q4_K_M、ctx 8192、输出 256 token、warmup 3、5 次中位数；实测 decode tok/s 落在 [90,120] 为达标；未实测数字标「估算」 | `llmgui-bench`、`llmgui-backend-api`、`docs` | `llmgui bench --profile turbo` 输出 `decode_tokens_per_second` 与区间判定，并归档原始 JSON |
+| C3 | `吞吐达到 90–120token` | 定义单用户 decode 吞吐口径：RTX 5090D 32GB、Q4_K_M、ctx 8192、输出 256 token、warmup 3、5 次中位数；实测 decode tok/s ≥90 为达标（120 为参考上限，超出记为余量）；未实测数字标「估算」 | `llmgui-bench`、`llmgui-backend-api`、`docs` | `llmgui bench --profile turbo` 输出 `decode_tokens_per_second` 与区间判定，并归档原始 JSON |
 | C4 | `引擎：ExLlamaV2 + TabbyAPI（单用户）` | 通过现有 `upstream` 后端接入 TabbyAPI 的 OpenAI 兼容 `/v1/completions` 与 `/health`；模型名可配置；单用户 `slots=1`；不新增执行后端 crate | `crates/llmgui-backend-upstream`、`crates/llmgui-cli` | TabbyAPI 启动后 `llmgui run/serve --backend upstream` 返回真实输出；健康检查与模型名生效 |
 | C5 | `max_seq_len: 16384` / `cache_mode: Q4` / `chunk_size: 2048` / `fasttensors: true` / `gpu_split: auto` | 文档给出 TabbyAPI 配置样例并逐项解释；与 C3 的 8k 验收口径区分（TabbyAPI 可开 16k，报 8k 主口径与 16k 参考） | `docs/`、`README.md` | 按文档启动 TabbyAPI；`/health` 通过、`/v1/completions` 流式返回 |
 | C6 | `llama.cpp 编译 CUDA+FA 版` + `-ngl 999 -fa -ctk q4_0 -ctv q4_0 -c 8192 --no-context-shift -t 8 -tb 8` | 新增 `turbo` 性能档：`ngl=999`、`flash_attn=true`、KV K/V 均 `q4_0`、`ctx=8192`、`n_batch=2048`、`n_ubatch=512`、`n_threads=8`、`n_threads_batch=8`；`--no-context-shift` 仅在外部 `llama-server` 启动参数中生效 | `llmgui-core`、`llmgui-backend-api`、`llmgui-backend-llamacpp`、`llmgui-cli`、`llmgui-server` | 单测校验 profile 展开与 LLamaContextParams 映射；`serve --profile turbo` 日志打印生效参数；WSL 启动命令含全部 flag |
@@ -56,6 +56,7 @@
 
 - [x] 引擎支持范围：llama.cpp 主 + TabbyAPI 外接（用户 2026-11-09 确认）。
 - [x] 验收口径：单用户 decode @ ctx 8192（用户 2026-11-09 确认）。
+- [x] 达标判定：中位数 ≥90 tok/s 即通过，120 仅作参考上限（用户 2026-11-09 确认）。
 - [x] 性能开关落点：新增 `turbo` 性能档，配置 / CLI / 模型默认值共用（用户 2026-11-09 确认）。
 - [x] EXL2 是否纳入模型管理：不纳入，仅作为 TabbyAPI 外部模型接入（与 ADR 0001 的 GGUF 口径一致）。
 - [x] 目标硬件：沿用项目验收机 RTX 5090D 32GB；其他硬件只记录实测，不设门槛。
