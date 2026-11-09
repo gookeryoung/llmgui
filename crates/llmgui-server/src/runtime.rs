@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use llmgui_backend_api::{Backend, LoadConfig};
+use llmgui_core::config::RuntimeProfile;
 use llmgui_core::estimate::KvCacheType;
 use llmgui_core::{LlmguiError, Result};
 use llmgui_models::GgufInfo;
@@ -23,6 +24,7 @@ pub struct LoadedModel {
     pub alias: Option<String>,
     pub display_name: String,
     pub path: std::path::PathBuf,
+    pub profile: RuntimeProfile,
     pub ctx: u32,
     pub kv: String,
     pub slots: usize,
@@ -30,6 +32,7 @@ pub struct LoadedModel {
     pub ttl_secs: u64,
     pub loaded_at: u64,
     pub last_used: Arc<AtomicU64>,
+    load_config: LoadConfig,
 }
 
 impl LoadedModel {
@@ -98,18 +101,21 @@ impl Runtime {
         path: std::path::PathBuf,
         defaults: &LoadDefaults,
     ) {
+        let load_config = LoadConfig::from(defaults.profile_params());
         let loaded = Arc::new(LoadedModel {
             id: id.into(),
             alias: None,
             display_name: display_name.into(),
             path,
-            ctx: defaults.ctx,
-            kv: defaults.kv.clone(),
-            slots: defaults.slots,
-            gpu_layers: defaults.gpu_layers,
+            profile: defaults.profile,
+            ctx: load_config.n_ctx,
+            kv: load_config.kv_type.clone(),
+            slots: load_config.slots,
+            gpu_layers: load_config.n_gpu_layers,
             ttl_secs: defaults.ttl_secs,
             loaded_at: now(),
             last_used: Arc::new(AtomicU64::new(now())),
+            load_config,
         });
         *self.loaded.write().await = Some(loaded);
     }
@@ -211,8 +217,9 @@ impl Runtime {
             .map(|file| entry.path.join(&file.path))
             .ok_or_else(|| LlmguiError::Model("model has no GGUF file".to_string()))?;
         let info = GgufInfo::open(&gguf)?;
-        let kv = KvCacheType::parse(&defaults.kv);
-        let estimate = info.estimate(defaults.ctx, kv, defaults.slots as u32);
+        let config = LoadConfig::from(defaults.profile_params());
+        let kv = KvCacheType::parse(&config.kv_type);
+        let estimate = info.estimate(config.n_ctx, kv, config.slots as u32);
         if estimate.total_bytes > vram_budget_bytes {
             return Err(LlmguiError::InsufficientMemory(format!(
                 "{} needs {} but the budget is {}; lower ctx, use q8_0/q4_0 KV or a smaller quant",
@@ -221,17 +228,23 @@ impl Runtime {
                 llmgui_core::estimate::human_bytes(vram_budget_bytes)
             )));
         }
-        let config = LoadConfig {
-            n_ctx: defaults.ctx,
-            n_batch: 512,
-            n_gpu_layers: defaults.gpu_layers,
-            n_threads: None,
-            kv_type: defaults.kv.clone(),
-            slots: defaults.slots,
-        };
+        tracing::info!(
+            model = %entry.id,
+            profile = defaults.profile.as_str(),
+            n_ctx = config.n_ctx,
+            kv = %config.kv_type,
+            n_gpu_layers = config.n_gpu_layers,
+            n_batch = config.n_batch,
+            n_ubatch = config.n_ubatch,
+            n_threads = ?config.n_threads,
+            n_threads_batch = ?config.n_threads_batch,
+            flash_attn = ?config.flash_attn,
+            "loading model with effective parameters"
+        );
         let backend = self.backend.clone();
         let path = gguf.clone();
-        tokio::task::spawn_blocking(move || backend.load(&path, &config))
+        let backend_config = config.clone();
+        tokio::task::spawn_blocking(move || backend.load(&path, &backend_config))
             .await
             .map_err(|error| LlmguiError::Backend(format!("load task failed: {error}")))??;
         Ok(Arc::new(LoadedModel {
@@ -239,25 +252,20 @@ impl Runtime {
             alias: None,
             display_name: entry.display_name.clone(),
             path: gguf,
-            ctx: defaults.ctx,
-            kv: defaults.kv.clone(),
-            slots: defaults.slots,
-            gpu_layers: defaults.gpu_layers,
+            profile: defaults.profile,
+            ctx: config.n_ctx,
+            kv: config.kv_type.clone(),
+            slots: config.slots,
+            gpu_layers: config.n_gpu_layers,
             ttl_secs: defaults.ttl_secs,
             loaded_at: now(),
             last_used: Arc::new(AtomicU64::new(now())),
+            load_config: config,
         }))
     }
 
     async fn load_backend_from(&self, model: &LoadedModel, budget: u64) -> Result<()> {
-        let config = LoadConfig {
-            n_ctx: model.ctx,
-            n_batch: 512,
-            n_gpu_layers: model.gpu_layers,
-            n_threads: None,
-            kv_type: model.kv.clone(),
-            slots: model.slots,
-        };
+        let config = model.load_config.clone();
         let backend = self.backend.clone();
         let path = model.path.clone();
         let _ = budget;
@@ -276,19 +284,20 @@ impl Runtime {
             .map(|file| entry.path.join(&file.path))
             .ok_or_else(|| LlmguiError::Model("model has no GGUF file".to_string()))?;
         let info = GgufInfo::open(&gguf)?;
+        let config = LoadConfig::from(defaults.profile_params());
         let estimate = info.estimate(
-            defaults.ctx,
-            KvCacheType::parse(&defaults.kv),
-            defaults.slots as u32,
+            config.n_ctx,
+            KvCacheType::parse(&config.kv_type),
+            config.slots as u32,
         );
         if estimate.total_bytes > budget {
             return Err(LlmguiError::InsufficientMemory(format!(
                 "{} needs {} at ctx {} / {} KV / {} slot(s), budget {}",
                 entry.id,
                 llmgui_core::estimate::human_bytes(estimate.total_bytes),
-                defaults.ctx,
-                defaults.kv,
-                defaults.slots,
+                config.n_ctx,
+                config.kv_type,
+                config.slots,
                 llmgui_core::estimate::human_bytes(budget)
             )));
         }
@@ -425,6 +434,26 @@ mod tests {
         assert_eq!(runtime.active_requests(), 0);
         runtime.unload().await.unwrap();
         assert!(runtime.loaded_id().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn turbo_defaults_reach_backend() {
+        let runtime = mock_runtime();
+        let (_dir, entry) = temp_entry();
+        let defaults = LoadDefaults {
+            profile: RuntimeProfile::Turbo,
+            ..LoadDefaults::default()
+        };
+        let loaded = runtime
+            .load(&entry, defaults, 32_000_000_000)
+            .await
+            .unwrap();
+        assert_eq!(loaded.profile, RuntimeProfile::Turbo);
+        assert_eq!(loaded.ctx, 8192);
+        assert_eq!(loaded.kv, "q4_0");
+        assert_eq!(loaded.gpu_layers, 999);
+        assert_eq!(loaded.load_config.n_batch, 2048);
+        assert_eq!(loaded.load_config.n_ubatch, 512);
     }
 
     #[tokio::test]

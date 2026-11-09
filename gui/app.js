@@ -98,6 +98,20 @@
       purpose: 'MoE 档：总参数 30B、激活约 3B，decode 速度快；32GB 显存可跑，24GB 需降 ctx。',
     },
     {
+      id: 'qwen3-coder-30b-a3b-q4km',
+      name: 'Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      repo: 'unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF',
+      file: 'Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf',
+      quant: 'Q4_K_M',
+      size: '约 18.56 GB',
+      sizeBytes: 18556689568,
+      vram: '≈21.5 GB @8k',
+      fit: 'ok',
+      license: 'Apache-2.0',
+      role: 'coder',
+      purpose: '代码专用 MoE 档：30B 总参数、约 3B 激活；配合 turbo 性能档（8k ctx / KV q4_0 / FA）目标 90–120 tok/s。',
+    },
+    {
       id: 'mistral-small-24b-q4km',
       name: 'Mistral-Small-24B-Instruct-2501-GGUF',
       repo: 'bartowski/Mistral-Small-24B-Instruct-2501-GGUF',
@@ -783,6 +797,7 @@
     const form = createEl('div', 'detail-form');
     const fields = [
       ['alias', '别名', 'text', entry.alias || ''],
+      ['profile', '性能档', 'profile', defaults.profile || 'custom'],
       ['ctx', 'ctx', 'number', defaults.ctx || 32768],
       ['kv', 'KV', 'select', defaults.kv || 'q8_0'],
       ['slots', 'slots', 'number', defaults.slots || 1],
@@ -792,12 +807,15 @@
       const label = createEl('label', 'field');
       label.appendChild(createEl('span', '', field[1]));
       let input;
-      if (field[2] === 'select') {
+      if (field[2] === 'select' || field[2] === 'profile') {
         input = createEl('select');
-        ['f16', 'q8_0', 'q4_0'].forEach(function (kv) {
-          const option = createEl('option', '', kv);
-          option.value = kv;
-          if (kv === field[3]) option.selected = true;
+        const options = field[2] === 'profile'
+          ? [['custom', 'custom（用下面的显式值）'], ['balanced', 'balanced'], ['turbo', 'turbo（8k / q4_0 / FA）']]
+          : [['f16', 'f16'], ['q8_0', 'q8_0'], ['q4_0', 'q4_0']];
+        options.forEach(function (pair) {
+          const option = createEl('option', '', pair[1]);
+          option.value = pair[0];
+          if (pair[0] === field[3]) option.selected = true;
           input.appendChild(option);
         });
       } else {
@@ -901,6 +919,7 @@
     if (action === 'load') {
       path = '/admin/models/' + encodeURIComponent(modelId) + '/load';
       body = {
+        profile: detailField('profile') ? detailField('profile').value : undefined,
         ctx: Number(detailField('ctx') && detailField('ctx').value) || undefined,
         kv: detailField('kv') ? detailField('kv').value : undefined,
         slots: Number(detailField('slots') && detailField('slots').value) || undefined,
@@ -942,6 +961,7 @@
     if (!id) return;
     const aliasValue = detailField('alias') ? detailField('alias').value.trim() : '';
     const defaults = {
+      profile: detailField('profile') ? detailField('profile').value : 'custom',
       ctx: Number(detailField('ctx') && detailField('ctx').value) || 32768,
       kv: detailField('kv') ? detailField('kv').value : 'q8_0',
       slots: Number(detailField('slots') && detailField('slots').value) || 1,

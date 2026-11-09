@@ -18,9 +18,34 @@ use llmgui_core::{LlmguiError, Result};
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum UpstreamKind {
+    #[default]
+    Generic,
+    LlamaServer,
+    TabbyApi,
+}
+
+impl UpstreamKind {
+    fn parse(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("llama-server") | Some("llama_server") => Self::LlamaServer,
+            Some("tabbyapi") | Some("tabby") => Self::TabbyApi,
+            _ => Self::Generic,
+        }
+    }
+
+    /// `cache_prompt` is a llama-server extension; TabbyAPI ignores or rejects
+    /// unknown fields depending on version, so only send it when requested.
+    fn sends_cache_prompt(self) -> bool {
+        matches!(self, Self::LlamaServer)
+    }
+}
+
 pub struct UpstreamBackend {
     base_url: String,
     model: String,
+    kind: UpstreamKind,
     http: ureq::Agent,
     n_ctx: AtomicU64,
     requests: AtomicU64,
@@ -36,6 +61,7 @@ impl UpstreamBackend {
         Ok(Self {
             base_url,
             model: "local".to_string(),
+            kind: UpstreamKind::Generic,
             http,
             n_ctx: AtomicU64::new(32768),
             requests: AtomicU64::new(0),
@@ -45,7 +71,14 @@ impl UpstreamBackend {
     pub fn from_env() -> Result<Self> {
         let url = std::env::var("LLMGUI_UPSTREAM_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:18080".to_string());
-        Self::new(url)
+        let mut backend = Self::new(url)?;
+        if let Ok(model) = std::env::var("LLMGUI_UPSTREAM_MODEL")
+            && !model.trim().is_empty()
+        {
+            backend.model = model;
+        }
+        backend.kind = UpstreamKind::parse(std::env::var("LLMGUI_UPSTREAM_KIND").ok().as_deref());
+        Ok(backend)
     }
 
     fn endpoint(&self) -> String {
@@ -110,17 +143,19 @@ impl llmgui_backend_api::Backend for UpstreamBackend {
         self.requests.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
         let prompt_tokens = (request.prompt.chars().count() / 4).max(1) as u32;
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "prompt": request.prompt,
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,
             "top_p": request.top_p,
             "stream": true,
-            "cache_prompt": true,
             "stop": request.stop,
             "seed": request.seed,
         });
+        if self.kind.sends_cache_prompt() {
+            body["cache_prompt"] = serde_json::Value::Bool(true);
+        }
         let response = match self.http.post(&self.endpoint()).send_json(&body) {
             Ok(response) => response,
             Err(ureq::Error::Status(status, response)) => {
@@ -221,5 +256,15 @@ mod tests {
     fn endpoint_has_no_double_slash() {
         let backend = UpstreamBackend::new("http://127.0.0.1:18080/").unwrap();
         assert_eq!(backend.endpoint(), "http://127.0.0.1:18080/v1/completions");
+        assert_eq!(backend.model, "local");
+    }
+
+    #[test]
+    fn upstream_kind_controls_cache_prompt() {
+        assert!(UpstreamKind::parse(Some("llama-server")).sends_cache_prompt());
+        assert!(!UpstreamKind::parse(Some("tabbyapi")).sends_cache_prompt());
+        assert!(!UpstreamKind::parse(Some("generic")).sends_cache_prompt());
+        assert!(!UpstreamKind::parse(None).sends_cache_prompt());
+        assert_eq!(UpstreamKind::parse(Some("TABBY")), UpstreamKind::TabbyApi);
     }
 }

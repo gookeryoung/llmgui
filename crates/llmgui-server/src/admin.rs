@@ -12,6 +12,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
+use llmgui_core::config::RuntimeProfile;
 use llmgui_core::estimate::{KvCacheType, human_bytes};
 use llmgui_core::{LlmguiError, Result, paths};
 use llmgui_download::{CasStore, Source};
@@ -233,6 +234,7 @@ async fn loaded_models(State(state): State<AppState>) -> Response {
             "id": model.id,
             "display_name": model.display_name,
             "path": model.path,
+            "profile": model.profile,
             "ctx": model.ctx,
             "kv": model.kv,
             "slots": model.slots,
@@ -367,6 +369,8 @@ async fn set_alias(
 #[derive(Debug, Deserialize, Default)]
 struct DefaultsRequest {
     #[serde(default)]
+    profile: Option<RuntimeProfile>,
+    #[serde(default)]
     ctx: Option<u32>,
     #[serde(default)]
     kv: Option<String>,
@@ -380,11 +384,13 @@ struct DefaultsRequest {
 
 fn merged_defaults(base: LoadDefaults, request: &DefaultsRequest) -> LoadDefaults {
     LoadDefaults {
+        profile: request.profile.unwrap_or(base.profile),
         ctx: request.ctx.unwrap_or(base.ctx),
-        kv: request.kv.clone().unwrap_or(base.kv),
+        kv: request.kv.clone().unwrap_or_else(|| base.kv.clone()),
         gpu_layers: request.gpu_layers.unwrap_or(base.gpu_layers),
         slots: request.slots.unwrap_or(base.slots).max(1),
         ttl_secs: request.ttl_secs.unwrap_or(base.ttl_secs),
+        ..base
     }
 }
 
@@ -443,6 +449,8 @@ async fn delete_preset(
 #[derive(Debug, Deserialize, Default)]
 struct LoadRequest {
     #[serde(default)]
+    profile: Option<RuntimeProfile>,
+    #[serde(default)]
     ctx: Option<u32>,
     #[serde(default)]
     kv: Option<String>,
@@ -490,6 +498,7 @@ async fn load_model(
     let defaults = merged_defaults(
         registry.prefs(&id).load_defaults,
         &DefaultsRequest {
+            profile: request.profile,
             ctx: request.ctx,
             kv: request.kv,
             gpu_layers: request.gpu_layers,
@@ -506,6 +515,7 @@ async fn load_model(
             "ok": true,
             "data": {
                 "id": model.id,
+                "profile": model.profile,
                 "ctx": model.ctx,
                 "kv": model.kv,
                 "slots": model.slots,

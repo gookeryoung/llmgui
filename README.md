@@ -70,15 +70,17 @@ llmgui models remove <id> --purge   # 删除模型并回收未引用缓存
 
 # 运行时（先启动 llmgui serve，可不再传 --model）
 llmgui load <id> --ctx 16384 --kv q8_0 --slots 1 --ttl 3600
+llmgui load <id> --profile turbo --slots 1        # 单用户吞吐档
 llmgui ps
 llmgui unload --all
 ```
 
 - `llmgui serve --model` 仍兼容：启动时把该模型登记为已加载；不传 `--model` 时首个聊天请求按已安装模型 JIT 加载。
+- `--profile turbo` 是显式性能档：ctx 8192、KV q4_0、flash attention、`ngl=999`、batch 2048 / ubatch 512、threads 8；默认 `custom` 保持原行为。CLI 的 `--ctx/--slots` 在档位之后生效。
 - 单卡默认只常驻一个模型；切换会 drain 在飞请求（超时可配 `LLMGUI_DRAIN_TIMEOUT_SECS`），失败回滚旧模型。
 - 加载前按 GGUF metadata + ctx/KV/slots 估算显存；超过 `LLMGUI_VRAM_BYTES`（默认 32GB）直接拒绝。
 - Web GUI 的模型页分「模型库 / 发现 / 下载」：支持搜索、显存筛选、加载/卸载、别名与默认值、删除、下载队列与磁盘回收。
-- 推荐目录当前收录 11 个许可友好的条目（Apache-2.0 / MIT）：Qwen2.5 7B/0.5B、Qwen3 4B/8B/14B/32B/30B-A3B、Qwen2.5-Coder 7B、Phi-4 14B、Mistral-Small 24B 与 Qwen2.5-7B 训练底座。
+- 推荐目录当前收录 12 个许可友好的条目（Apache-2.0 / MIT）：Qwen2.5 7B/0.5B、Qwen3 4B/8B/14B/32B/30B-A3B、Qwen3-Coder-30B-A3B、Qwen2.5-Coder 7B、Phi-4 14B、Mistral-Small 24B 与 Qwen2.5-7B 训练底座。
 
 ## 真实推理
 
@@ -112,12 +114,58 @@ cargo run -p llmgui-cli -- serve --backend upstream --start-wsl `
   --wsl-port 18080 --port 11435
 ```
 
-### 方式 B：in-process llama.cpp（Linux/修复后 Windows）
+### 方式 B：ExLlamaV2 + TabbyAPI（外接，单用户）
+
+TabbyAPI 暴露 OpenAI 兼容接口，直接复用 `upstream` 后端；EXL2 模型不进入本项目
+的下载/registry，由 TabbyAPI 自行管理。参考 `config.yml`：
+
+```yaml
+model:
+  max_seq_len: 16384
+  cache_mode: Q4
+  chunk_size: 2048
+  fasttensors: true
+  gpu_split: auto
+```
+
+启动 TabbyAPI（默认端口 5000）后，用以下环境变量接入：
+
+```powershell
+$env:LLMGUI_UPSTREAM_URL = "http://127.0.0.1:5000"
+$env:LLMGUI_UPSTREAM_MODEL = "<TabbyAPI 中已加载的模型名>"  # 可用 /v1/models 查询
+$env:LLMGUI_UPSTREAM_KIND = "tabbyapi"                     # 不发送 llama-server 的 cache_prompt
+cargo run -p llmgui-cli -- serve --backend upstream --port 11435
+```
+
+单用户建议 TabbyAPI `--slots 1`；本项目按单流计吞吐，不承诺并发批处理。
+
+### 方式 C：in-process llama.cpp（Linux/修复后 Windows）
 
 ```powershell
 # 需要 MSVC + libclang；先设置 LIBCLANG_PATH，并确保 vcvars64 环境
-cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf>
+cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf> --profile turbo
 ```
+
+> **Qwen3-Coder-30B-A3B 性能档**：推荐目录已收录
+> `qwen3-coder-30b-a3b-q4km`（Q4_K_M，约 18.56GB）。在 32GB 显存、8k ctx、
+> KV q4_0、FA、`ngl=999`、单用户（`slots=1`）条件下，目标 decode 吞吐为
+> 90–120 tok/s（ADR 0004，待 5090D 实测归档；未实测前按「目标值」看待）。
+> 也可在 config 中固定：
+>
+> ```toml
+> [model]
+> profile = "turbo"
+> ```
+>
+> 验收基准（单用户、单流；`--warmup` 不计入，取 5 次中位数）：
+>
+> ```powershell
+> cargo run -p llmgui-cli -- bench --backend upstream --profile turbo `
+>   --concurrency 1 --iterations 5 --warmup 3 --max-tokens 256 `
+>   --target-min 90 --target-max 120
+> ```
+>
+> 报告中的 `median_decode_tps` 与 `target_pass` 是验收字段；未在 5090D 上实测前不写成已达成。
 
 > **Linux/WSL 已验证**：同一代码在 WSL Ubuntu 24.04 构建后，单流 87 tok/s、TTFT 25ms，
 > 同 prompt 两请求命中 in-process prefix cache 1 次；服务地址 `/healthz`、`/metrics` 正常。

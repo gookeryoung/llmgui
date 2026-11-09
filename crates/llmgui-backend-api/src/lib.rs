@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use llmgui_core::Result;
+use llmgui_core::config::{FlashAttention, ProfileParams};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -23,8 +24,11 @@ pub struct BackendInfo {
 pub struct LoadConfig {
     pub n_ctx: u32,
     pub n_batch: u32,
+    pub n_ubatch: u32,
     pub n_gpu_layers: i32,
     pub n_threads: Option<i32>,
+    pub n_threads_batch: Option<i32>,
+    pub flash_attn: FlashAttention,
     pub kv_type: String,
     pub slots: usize,
 }
@@ -34,10 +38,29 @@ impl Default for LoadConfig {
         Self {
             n_ctx: 32768,
             n_batch: 512,
+            n_ubatch: 512,
             n_gpu_layers: -1,
             n_threads: None,
+            n_threads_batch: None,
+            flash_attn: FlashAttention::Auto,
             kv_type: "q8_0".to_string(),
             slots: 1,
+        }
+    }
+}
+
+impl From<ProfileParams> for LoadConfig {
+    fn from(params: ProfileParams) -> Self {
+        Self {
+            n_ctx: params.ctx,
+            n_batch: params.n_batch,
+            n_ubatch: params.n_ubatch,
+            n_gpu_layers: params.gpu_layers,
+            n_threads: params.n_threads,
+            n_threads_batch: params.n_threads_batch,
+            flash_attn: params.flash_attn,
+            kv_type: params.kv_type,
+            slots: params.slots,
         }
     }
 }
@@ -62,6 +85,10 @@ pub struct GenerateStats {
     pub ttft_ms: u64,
     pub total_ms: u64,
     pub tokens_per_second: f64,
+    /// Time after the first token (excludes TTFT / prefill).
+    pub decode_ms: u64,
+    /// Decode throughput: `(completion_tokens - 1) / decode_ms`.
+    pub decode_tokens_per_second: f64,
     pub prefix_cache_hit: bool,
     pub finish_reason: String,
 }
@@ -82,15 +109,30 @@ impl GenerateStats {
         } else {
             f64::from(completion_tokens) * 1000.0 / total_ms as f64
         };
+        let ttft_ms = ttft.map(|d| d.as_millis() as u64).unwrap_or(total_ms);
+        let decode_ms = total_ms.saturating_sub(ttft_ms);
+        let decode_tokens_per_second = decode_tps(completion_tokens, total_ms, ttft_ms);
         Self {
             prompt_tokens,
             completion_tokens,
-            ttft_ms: ttft.map(|d| d.as_millis() as u64).unwrap_or(total_ms),
+            ttft_ms,
             total_ms,
             tokens_per_second,
+            decode_ms,
+            decode_tokens_per_second,
             prefix_cache_hit,
             finish_reason: finish_reason.into(),
         }
+    }
+}
+
+fn decode_tps(completion_tokens: u32, total_ms: u64, ttft_ms: u64) -> f64 {
+    let decode_ms = total_ms.saturating_sub(ttft_ms);
+    let decode_tokens = completion_tokens.saturating_sub(1);
+    if decode_ms == 0 {
+        0.0
+    } else {
+        f64::from(decode_tokens) * 1000.0 / decode_ms as f64
     }
 }
 
@@ -159,5 +201,41 @@ mod tests {
         let prompt = default_chat_prompt(&messages);
         assert!(prompt.contains("<|im_start|>user"));
         assert!(prompt.ends_with("<|im_start|>assistant\n"));
+    }
+
+    #[test]
+    fn decode_tps_excludes_ttft() {
+        // 33 tokens total, first token at 500ms, remaining 32 over 500ms.
+        assert_eq!(decode_tps(33, 1000, 500), 64.0);
+        assert_eq!(decode_tps(1, 1000, 1000), 0.0);
+        assert_eq!(decode_tps(0, 1000, 1000), 0.0);
+        assert_eq!(decode_tps(10, 0, 0), 0.0);
+    }
+
+    #[test]
+    fn load_config_maps_profile_params() {
+        let params = llmgui_core::config::ProfileParams {
+            profile: llmgui_core::config::RuntimeProfile::Turbo,
+            ctx: 8192,
+            kv_type: "q4_0".to_string(),
+            gpu_layers: 999,
+            n_batch: 2048,
+            n_ubatch: 512,
+            n_threads: Some(8),
+            n_threads_batch: Some(8),
+            flash_attn: FlashAttention::Enabled,
+            slots: 1,
+            no_context_shift: true,
+        };
+        let config = LoadConfig::from(params);
+        assert_eq!(config.n_ctx, 8192);
+        assert_eq!(config.kv_type, "q4_0");
+        assert_eq!(config.n_gpu_layers, 999);
+        assert_eq!(config.n_batch, 2048);
+        assert_eq!(config.n_ubatch, 512);
+        assert_eq!(config.n_threads, Some(8));
+        assert_eq!(config.n_threads_batch, Some(8));
+        assert_eq!(config.flash_attn, FlashAttention::Enabled);
+        assert_eq!(config.slots, 1);
     }
 }

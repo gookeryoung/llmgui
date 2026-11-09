@@ -12,9 +12,10 @@
 |---|---|---|---|---|---|---|
 | [0001](0001-local-llm-runtime-finetune.md) | 本地大模型运行与微调框架（Rust + Python） | Accepted | P0 部分 / P1 进行中 / P2a 部分 / P2b 已落地 / P3 进行中 | `crates/`、`python/`、`gui/` | `cargo test --workspace`、`pytest python/tests` | [CHANGELOG](../../CHANGELOG.md) |
 | [0002](0002-model-management.md) | 模型管理（模型库 / 发现下载 / 运行时生命周期 / 训练产物） | Accepted | P0/P1 已落地 / P2a 部分 / P2b 部分 / P3 部分 | `crates/llmgui-models`、`crates/llmgui-server`、`crates/llmgui-download`、`gui/` | `cargo test --workspace` | [CHANGELOG](../../CHANGELOG.md) |
+| [0004](0004-qwen3-coder-30b-throughput.md) | Qwen3-Coder-30B-A3B 单用户吞吐 90–120 tok/s | Accepted | P0 已落地 / P1 已落地 / P2a 已落地 / P2b 未开始 | `crates/llmgui-core`、`crates/llmgui-backend-api`、`crates/llmgui-backend-llamacpp`、`crates/llmgui-server`、`crates/llmgui-cli`、`models/` | `cargo test` | [CHANGELOG](../../CHANGELOG.md) |
 
 ## 关联文档
 
-- 需求卡片：[0001](../requirements/0001-local-llm-runtime-finetune.md) · [0003](../requirements/0003-model-management.md)
+- 需求卡片：[0001](../requirements/0001-local-llm-runtime-finetune.md) · [0003](../requirements/0003-model-management.md) · [0004](../requirements/0004-qwen3-coder-30b-throughput.md)
 - 方向调研：[runtime](../research/runtime.md) · [finetune](../research/finetune.md) · [download](../research/download.md) · [model-management](../research/model-management.md)
 - 术语表：[CONTEXT.md](../../CONTEXT.md)

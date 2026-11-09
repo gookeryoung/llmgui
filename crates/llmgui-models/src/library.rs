@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use llmgui_core::config::{FlashAttention, ProfileParams, RuntimeProfile};
 use llmgui_core::estimate::{KvCacheType, MemoryEstimate};
 use llmgui_core::manifest::{ContextInfo, ModelFile, ModelManifest};
 use llmgui_core::{LlmguiError, Result};
@@ -127,22 +128,65 @@ pub struct ModelPrefs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoadDefaults {
+    /// Named preset; `custom` keeps the explicit fields below.
+    #[serde(default)]
+    pub profile: RuntimeProfile,
     pub ctx: u32,
     pub kv: String,
     pub gpu_layers: i32,
+    #[serde(default = "default_batch")]
+    pub n_batch: u32,
+    #[serde(default)]
+    pub n_ubatch: Option<u32>,
+    #[serde(default)]
+    pub n_threads: Option<i32>,
+    #[serde(default)]
+    pub n_threads_batch: Option<i32>,
+    #[serde(default)]
+    pub flash_attn: FlashAttention,
     pub slots: usize,
     pub ttl_secs: u64,
+}
+
+fn default_batch() -> u32 {
+    512
 }
 
 impl Default for LoadDefaults {
     fn default() -> Self {
         Self {
+            profile: RuntimeProfile::Custom,
             ctx: 32768,
             kv: "q8_0".to_string(),
             gpu_layers: -1,
+            n_batch: 512,
+            n_ubatch: None,
+            n_threads: None,
+            n_threads_batch: None,
+            flash_attn: FlashAttention::Auto,
             slots: 1,
             ttl_secs: 0,
         }
+    }
+}
+
+impl LoadDefaults {
+    /// Resolve the preset into concrete load parameters.
+    pub fn profile_params(&self) -> ProfileParams {
+        let base = ProfileParams {
+            profile: self.profile,
+            ctx: self.ctx,
+            kv_type: self.kv.clone(),
+            gpu_layers: self.gpu_layers,
+            n_batch: self.n_batch,
+            n_ubatch: self.n_ubatch.unwrap_or(self.n_batch),
+            n_threads: self.n_threads,
+            n_threads_batch: self.n_threads_batch,
+            flash_attn: self.flash_attn,
+            slots: self.slots,
+            no_context_shift: true,
+        };
+        self.profile.expand(base)
     }
 }
 
@@ -1081,6 +1125,33 @@ mod tests {
         assert_ne!(derived.id, imported.id);
         assert_eq!(registry.dependents(&imported.id), vec![derived.id.clone()]);
         assert!(register_derived(&mut registry, &gguf, Some("missing"), None).is_err());
+    }
+
+    #[test]
+    fn load_defaults_expand_turbo_profile() {
+        let defaults = LoadDefaults {
+            profile: RuntimeProfile::Turbo,
+            ..LoadDefaults::default()
+        };
+        let params = defaults.profile_params();
+        assert_eq!(params.ctx, 8192);
+        assert_eq!(params.kv_type, "q4_0");
+        assert_eq!(params.gpu_layers, 999);
+        assert_eq!(params.n_batch, 2048);
+        assert_eq!(params.n_ubatch, 512);
+        assert_eq!(params.flash_attn, FlashAttention::Enabled);
+    }
+
+    #[test]
+    fn load_defaults_accept_legacy_json() {
+        let defaults: LoadDefaults = serde_json::from_str(
+            r#"{"ctx":4096,"kv":"q8_0","gpu_layers":0,"slots":1,"ttl_secs":0}"#,
+        )
+        .unwrap();
+        assert_eq!(defaults.profile, RuntimeProfile::Custom);
+        assert_eq!(defaults.n_batch, 512);
+        assert_eq!(defaults.flash_attn, FlashAttention::Auto);
+        assert_eq!(defaults.ctx, 4096);
     }
 
     fn sample_entry(id: &str) -> ModelEntry {

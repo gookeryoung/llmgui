@@ -66,14 +66,115 @@ impl Default for DownloadConfig {
     }
 }
 
+/// Named load-profile preset. `Custom` keeps the explicit fields below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeProfile {
+    #[default]
+    Custom,
+    Balanced,
+    Turbo,
+}
+
+impl RuntimeProfile {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "custom" => Some(Self::Custom),
+            "balanced" => Some(Self::Balanced),
+            "turbo" => Some(Self::Turbo),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Custom => "custom",
+            Self::Balanced => "balanced",
+            Self::Turbo => "turbo",
+        }
+    }
+}
+
+/// Flash-attention policy. `Auto` lets llama.cpp enable FA when the KV cache
+/// type requires it, which preserves the pre-profile behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FlashAttention {
+    #[default]
+    Auto,
+    Enabled,
+    Disabled,
+}
+
+/// Fully resolved load parameters after applying a [`RuntimeProfile`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileParams {
+    pub profile: RuntimeProfile,
+    pub ctx: u32,
+    pub kv_type: String,
+    pub gpu_layers: i32,
+    pub n_batch: u32,
+    pub n_ubatch: u32,
+    pub n_threads: Option<i32>,
+    pub n_threads_batch: Option<i32>,
+    pub flash_attn: FlashAttention,
+    pub slots: usize,
+    pub no_context_shift: bool,
+}
+
+impl RuntimeProfile {
+    /// Expand this profile over `base`. Profiles override the explicit fields;
+    /// callers that need per-request overrides apply them afterwards.
+    pub fn expand(self, base: ProfileParams) -> ProfileParams {
+        match self {
+            Self::Custom => ProfileParams {
+                profile: self,
+                ..base
+            },
+            Self::Balanced => ProfileParams {
+                profile: self,
+                ctx: 32768,
+                kv_type: "q8_0".to_string(),
+                gpu_layers: -1,
+                n_batch: 512,
+                n_ubatch: 512,
+                n_threads: None,
+                n_threads_batch: None,
+                flash_attn: FlashAttention::Auto,
+                slots: base.slots,
+                no_context_shift: true,
+            },
+            Self::Turbo => ProfileParams {
+                profile: self,
+                ctx: 8192,
+                kv_type: "q4_0".to_string(),
+                gpu_layers: 999,
+                n_batch: 2048,
+                n_ubatch: 512,
+                n_threads: Some(8),
+                n_threads_batch: Some(8),
+                flash_attn: FlashAttention::Enabled,
+                slots: base.slots,
+                no_context_shift: true,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelConfig {
+    /// Named load preset; `custom` keeps the explicit fields below.
+    pub profile: RuntimeProfile,
     pub ctx: u32,
     pub kv_type: String,
     pub gpu_layers: i32,
     pub n_threads: Option<i32>,
     pub n_batch: u32,
+    /// Micro-batch size; `None` keeps the historical `n_ubatch = n_batch`.
+    pub n_ubatch: Option<u32>,
+    pub n_threads_batch: Option<i32>,
+    pub flash_attn: FlashAttention,
     /// Additional directories scanned for models (external libraries).
     #[serde(default)]
     pub extra_dirs: Vec<PathBuf>,
@@ -85,14 +186,38 @@ pub struct ModelConfig {
 impl Default for ModelConfig {
     fn default() -> Self {
         Self {
+            profile: RuntimeProfile::Custom,
             ctx: 32768,
             kv_type: "q8_0".to_string(),
             gpu_layers: -1,
             n_threads: None,
             n_batch: 512,
+            n_ubatch: None,
+            n_threads_batch: None,
+            flash_attn: FlashAttention::Auto,
             extra_dirs: Vec::new(),
             idle_ttl_secs: 0,
         }
+    }
+}
+
+impl ModelConfig {
+    /// Resolve the configured profile into concrete load parameters.
+    pub fn profile_params(&self, slots: usize) -> ProfileParams {
+        let base = ProfileParams {
+            profile: self.profile,
+            ctx: self.ctx,
+            kv_type: self.kv_type.clone(),
+            gpu_layers: self.gpu_layers,
+            n_batch: self.n_batch,
+            n_ubatch: self.n_ubatch.unwrap_or(self.n_batch),
+            n_threads: self.n_threads,
+            n_threads_batch: self.n_threads_batch,
+            flash_attn: self.flash_attn,
+            slots,
+            no_context_shift: true,
+        };
+        self.profile.expand(base)
     }
 }
 
@@ -127,5 +252,98 @@ impl AppConfig {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_parse_accepts_known_names() {
+        assert_eq!(RuntimeProfile::parse("turbo"), Some(RuntimeProfile::Turbo));
+        assert_eq!(
+            RuntimeProfile::parse(" Balanced "),
+            Some(RuntimeProfile::Balanced)
+        );
+        assert_eq!(
+            RuntimeProfile::parse("custom"),
+            Some(RuntimeProfile::Custom)
+        );
+        assert_eq!(RuntimeProfile::parse("fast"), None);
+        assert_eq!(RuntimeProfile::default(), RuntimeProfile::Custom);
+    }
+
+    #[test]
+    fn turbo_profile_expands_to_target_parameters() {
+        let config = ModelConfig {
+            profile: RuntimeProfile::Turbo,
+            // Preset wins over explicit config-file fields.
+            ctx: 16384,
+            kv_type: "q8_0".to_string(),
+            gpu_layers: 0,
+            ..ModelConfig::default()
+        };
+        let params = config.profile_params(4);
+        assert_eq!(params.ctx, 8192);
+        assert_eq!(params.kv_type, "q4_0");
+        assert_eq!(params.gpu_layers, 999);
+        assert_eq!(params.n_batch, 2048);
+        assert_eq!(params.n_ubatch, 512);
+        assert_eq!(params.n_threads, Some(8));
+        assert_eq!(params.n_threads_batch, Some(8));
+        assert_eq!(params.flash_attn, FlashAttention::Enabled);
+        assert_eq!(params.slots, 4);
+        assert!(params.no_context_shift);
+    }
+
+    #[test]
+    fn custom_profile_keeps_explicit_fields() {
+        let config = ModelConfig {
+            ctx: 4096,
+            kv_type: "f16".to_string(),
+            gpu_layers: 12,
+            n_batch: 1024,
+            n_ubatch: Some(256),
+            n_threads_batch: Some(6),
+            flash_attn: FlashAttention::Disabled,
+            ..ModelConfig::default()
+        };
+        let params = config.profile_params(2);
+        assert_eq!(params.ctx, 4096);
+        assert_eq!(params.kv_type, "f16");
+        assert_eq!(params.gpu_layers, 12);
+        assert_eq!(params.n_batch, 1024);
+        assert_eq!(params.n_ubatch, 256);
+        assert_eq!(params.n_threads_batch, Some(6));
+        assert_eq!(params.flash_attn, FlashAttention::Disabled);
+        assert_eq!(params.slots, 2);
+    }
+
+    #[test]
+    fn ubatch_defaults_to_batch_for_legacy_config() {
+        let config = ModelConfig {
+            n_batch: 768,
+            ..ModelConfig::default()
+        };
+        assert_eq!(config.profile_params(1).n_ubatch, 768);
+    }
+
+    #[test]
+    fn config_parses_profile_and_flash_attention() {
+        let config: AppConfig = toml::from_str(
+            r#"
+            [model]
+            profile = "turbo"
+            flash_attn = "disabled"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.model.profile, RuntimeProfile::Turbo);
+        assert_eq!(config.model.flash_attn, FlashAttention::Disabled);
+
+        let legacy: AppConfig = toml::from_str("[model]\nctx = 4096\n").unwrap();
+        assert_eq!(legacy.model.profile, RuntimeProfile::Custom);
+        assert_eq!(legacy.model.flash_attn, FlashAttention::Auto);
     }
 }

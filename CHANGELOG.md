@@ -6,6 +6,10 @@
 
 ### Docs
 
+- 新增 ADR 0004《Qwen3-Coder-30B-A3B 单用户吞吐 90–120 tok/s》（Accepted）
+  与需求卡片 0004：以 llama.cpp CUDA+FA 为主路径，新增显式 `turbo` 性能档
+  （ngl 999 / FA / KV q4_0 / batch 2048 / ubatch 512 / threads 8），TabbyAPI 经
+  `upstream` 外接；bench 增加单流 decode 与 [90,120] 目标判定。
 - 新增 ADR 0002《模型管理（模型库 / 发现下载 / 运行时生命周期 / 训练产物）》（Proposed，待评审）
   与需求卡片 0003、调研 `docs/research/model-management.md`：参考 LM Studio / Unsloth 规划
   注册表驱动的模型库、任务化下载、加载/卸载/切换/JIT/TTL、预设/别名与训练产物派生注册。
@@ -20,6 +24,31 @@
 
 ### Added
 
+- ADR 0004 P0：Qwen3-Coder-30B-A3B 单用户吞吐档 (ADR 0004 P0)：
+  - 推荐目录新增 `qwen3-coder-30b-a3b-q4km`（`unsloth/...-GGUF`，Q4_K_M，
+    18,556,689,568 B），GUI 静态目录同步；
+  - 新增 `RuntimeProfile`（`custom` / `balanced` / `turbo`）与 `flash_attn`
+    （`auto` / `enabled` / `disabled`）；`turbo` 展开为 ctx 8192、KV q4_0、
+    FA、`ngl=999`、batch 2048 / ubatch 512 / threads 8；
+  - `LoadConfig`、`LoadDefaults`、`/admin/models/*` 与 CLI `load/serve --profile`
+    支持该档位；CLI `--ctx/--slots` 在档位之后覆盖；
+  - in-process llama.cpp 应用 FA / ubatch / threads_batch，并对
+    「量化 KV + 显式关闭 FA」在加载前报错；
+  - 新增 profile 展开、参数映射、旧配置兼容与加载路径单测。
+- ADR 0004 P1：吞吐验证与外接引擎 (ADR 0004 P1)：
+  - `--start-wsl` 的 `llama-server` 命令按 `turbo` 追加
+    `-ngl 999 -fa -ctk/-ctv q4_0 --no-context-shift -b 2048 -ub 512 -tb 8`，
+    `custom/balanced` 保持原命令；
+  - upstream 支持 `LLMGUI_UPSTREAM_MODEL` 与 `LLMGUI_UPSTREAM_KIND`
+    （`llama-server` 才发送 `cache_prompt`），并可接 TabbyAPI；
+  - `bench` 支持 `--profile`、`--warmup`、`--target-min/--target-max`，按并发分批
+    （`concurrency=1` 严格串行），新增 `decode_tokens_per_second`、
+    `median_decode_tps`、`decode_samples` 与 `target_pass`；
+  - README 增加 Qwen3-Coder-30B turbo 验收命令与 TabbyAPI 配置示例。
+- ADR 0004 P2a：GUI 性能档与文档 (ADR 0004 P2a)：
+  - 模型详情新增「性能档」下拉（custom / balanced / turbo），加载与保存默认值时
+    透传 `profile`，`turbo` 覆盖显式 ctx/KV；
+  - `gui/README.md` 与 README 补充 Coder-30B、turbo 验收与 TabbyAPI 说明。
 - ADR 0002 模型管理落地（P0/P1 完成，P2a/P2b/P3 部分）(ADR 0002 P0/P1/P2a/P2b/P3)：
   - 注册表驱动的模型库 `$LLMGUI_HOME/registry.json`（原子写 + 文件锁 + 可由 manifest 重建），
     扫描/导入 GGUF、详情与 24/32GB fit 矩阵、别名/加载默认值/预设、SHA256 校验、删除与引用检查；
@@ -32,9 +61,9 @@
   - 派生模型注册（`--base-id` / `--adapter-id`）与 `model.yaml` 兼容 JSON 描述符导入导出；
   - Web GUI 模型页重构为「模型库 / 发现 / 下载」：搜索/显存筛选/排序、详情抽屉、加载/卸载/
     删除/校验、推荐目录与仓库解析、下载队列与磁盘回收。
-- 发现目录扩充到 11 个许可友好的条目：新增 Qwen3-8B、Qwen3-4B、Qwen2.5-Coder-7B、
-  Qwen3-30B-A3B（MoE）、Phi-4 14B（MIT）、Mistral-Small-24B（Apache-2.0），体积按
-  2026-11-03 ModelScope 列表实测；发现页角色标签中文化。
+- 发现目录扩充到 12 个许可友好的条目：新增 Qwen3-8B、Qwen3-4B、Qwen2.5-Coder-7B、
+  Qwen3-30B-A3B（MoE）、Qwen3-Coder-30B-A3B（MoE）、Phi-4 14B（MIT）、
+  Mistral-Small-24B（Apache-2.0），体积按 ModelScope 列表实测；发现页角色标签中文化。
 - 修复：识别 `Q4_K` / `Q5_K` / `Q3_K` 等无后缀量化；仓库同时提供单文件与分片时
   优先单文件，避免重复下载权重。
 - 模型清单新增 5090D 32GB 大模型档位：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx 估算

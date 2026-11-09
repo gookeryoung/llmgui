@@ -2172,6 +2172,7 @@ name = "llmgui-backend-llamacpp"
 version = "0.1.0"
 dependencies = [
  "llama-cpp-2",
+ "llama-cpp-sys-2",
  "llmgui-backend-api",
  "llmgui-core",
  "tokio",

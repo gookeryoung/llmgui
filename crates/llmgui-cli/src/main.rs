@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use clap::{Parser, Subcommand};
 use llmgui_backend_api::{Backend, GenerateRequest, LoadConfig, TokenEvent};
 use llmgui_backend_mock::MockBackend;
-use llmgui_core::config::AppConfig;
+use llmgui_core::config::{AppConfig, ProfileParams, RuntimeProfile};
 use llmgui_core::estimate::{KvCacheType, human_bytes};
 use llmgui_core::paths;
 use llmgui_core::{LlmguiError, Result};
@@ -83,6 +83,9 @@ enum Commands {
     /// Load an installed model through a running server.
     Load {
         model: String,
+        /// Load preset: custom | balanced | turbo.
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long)]
         ctx: Option<u32>,
         #[arg(long)]
@@ -112,6 +115,9 @@ enum Commands {
         host: Option<String>,
         #[arg(long)]
         port: Option<u16>,
+        /// Load preset: custom | balanced | turbo.
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long)]
         ctx: Option<u32>,
         #[arg(long)]
@@ -158,12 +164,25 @@ enum Commands {
         model: Option<PathBuf>,
         #[arg(long, default_value = "mock")]
         backend: String,
+        /// Load preset: custom | balanced | turbo.
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long, default_value_t = 4)]
         concurrency: usize,
         #[arg(long, default_value_t = 4)]
         iterations: usize,
+        #[arg(long, default_value_t = 3)]
+        warmup: usize,
         #[arg(long, default_value_t = 64)]
         max_tokens: u32,
+        /// Lower bound for median decode tok/s.
+        #[arg(long)]
+        target_min: Option<f64>,
+        /// Upper bound for median decode tok/s.
+        #[arg(long)]
+        target_max: Option<f64>,
+        #[arg(long, default_value = "请用一句话介绍你自己。")]
+        prompt: String,
     },
     /// Launch the Python training worker.
     Train {
@@ -205,19 +224,28 @@ async fn dispatch() -> Result<()> {
         Commands::Models { command, json } => models_command(&config, command, json).await,
         Commands::Load {
             model,
+            profile,
             ctx,
             kv,
             slots,
             ttl,
             alias,
-        } => admin_json(
-            &config,
-            "POST",
-            &format!("/admin/models/{model}/load"),
-            Some(serde_json::json!({
-                "ctx": ctx, "kv": kv, "slots": slots, "ttl_secs": ttl, "alias": alias
-            })),
-        ),
+        } => {
+            let profile = profile
+                .as_deref()
+                .map(parse_profile)
+                .transpose()?
+                .map(RuntimeProfile::as_str);
+            admin_json(
+                &config,
+                "POST",
+                &format!("/admin/models/{model}/load"),
+                Some(serde_json::json!({
+                    "profile": profile,
+                    "ctx": ctx, "kv": kv, "slots": slots, "ttl_secs": ttl, "alias": alias
+                })),
+            )
+        }
         Commands::Unload { all, model } => {
             if all || model.is_none() {
                 admin_json(&config, "POST", "/admin/models/unload", None)
@@ -236,6 +264,7 @@ async fn dispatch() -> Result<()> {
             backend,
             host,
             port,
+            profile,
             ctx,
             slots,
             api_key,
@@ -245,9 +274,10 @@ async fn dispatch() -> Result<()> {
             wsl_server,
             wsl_port,
         } => {
+            let profile = profile.as_deref().map(parse_profile).transpose()?;
             serve(
-                config, model, backend, host, port, ctx, slots, api_key, gui_dir, start_wsl,
-                wsl_distro, wsl_server, wsl_port,
+                config, model, backend, host, port, profile, ctx, slots, api_key, gui_dir,
+                start_wsl, wsl_distro, wsl_server, wsl_port,
             )
             .await
         }
@@ -267,10 +297,31 @@ async fn dispatch() -> Result<()> {
         Commands::Bench {
             model,
             backend,
+            profile,
             concurrency,
             iterations,
+            warmup,
             max_tokens,
-        } => bench(model, backend, concurrency, iterations, max_tokens).await,
+            target_min,
+            target_max,
+            prompt,
+        } => {
+            let profile = profile.as_deref().map(parse_profile).transpose()?;
+            bench(
+                config,
+                model,
+                backend,
+                profile,
+                concurrency,
+                iterations,
+                warmup,
+                max_tokens,
+                target_min,
+                target_max,
+                prompt,
+            )
+            .await
+        }
         Commands::Train { config, python } => train(&config, &python).await,
         Commands::Doctor => doctor(),
     }
@@ -652,14 +703,26 @@ fn make_backend(backend: &str) -> Result<Arc<dyn Backend>> {
     }
 }
 
+fn parse_profile(value: &str) -> Result<RuntimeProfile> {
+    RuntimeProfile::parse(value).ok_or_else(|| {
+        LlmguiError::Config(format!(
+            "unknown profile {value}; use custom|balanced|turbo"
+        ))
+    })
+}
+
 fn load_config_for_serve(
     mut config: AppConfig,
+    profile: Option<RuntimeProfile>,
     ctx: Option<u32>,
     slots: Option<usize>,
     host: Option<String>,
     port: Option<u16>,
     api_key: Option<String>,
 ) -> AppConfig {
+    if let Some(profile) = profile {
+        config.model.profile = profile;
+    }
     if let Some(ctx) = ctx {
         config.model.ctx = ctx;
     }
@@ -678,13 +741,52 @@ fn load_config_for_serve(
     config
 }
 
+/// Build the llama-server argument list for a resolved profile.
+///
+/// Only `turbo` adds the performance flags; `custom` / `balanced` keep the
+/// historical `-c <ctx> -t <threads>` command.
+fn llama_server_args(model_wsl: &str, port: u16, params: &ProfileParams) -> Vec<String> {
+    let mut args = vec![
+        "-m".to_string(),
+        model_wsl.to_string(),
+        "--host".to_string(),
+        "127.0.0.1".to_string(),
+        "--port".to_string(),
+        port.to_string(),
+        "-c".to_string(),
+        params.ctx.to_string(),
+        "-t".to_string(),
+        params.n_threads.unwrap_or(8).to_string(),
+    ];
+    if params.profile == RuntimeProfile::Turbo {
+        args.extend([
+            "-ngl".to_string(),
+            "999".to_string(),
+            "-fa".to_string(),
+            "-ctk".to_string(),
+            params.kv_type.clone(),
+            "-ctv".to_string(),
+            params.kv_type.clone(),
+            "--no-context-shift".to_string(),
+            "-b".to_string(),
+            params.n_batch.to_string(),
+            "-ub".to_string(),
+            params.n_ubatch.to_string(),
+        ]);
+    }
+    if let Some(threads) = params.n_threads_batch {
+        args.extend(["-tb".to_string(), threads.to_string()]);
+    }
+    args
+}
+
 /// Ensure a WSL `llama-server` is healthy on `port`, starting it if necessary.
 async fn ensure_wsl_server(
     model: &std::path::Path,
     distro: &str,
     server: &str,
     port: u16,
-    ctx: u32,
+    params: &ProfileParams,
 ) -> Result<String> {
     use std::process::Command;
     let url = format!("http://127.0.0.1:{port}");
@@ -715,20 +817,10 @@ async fn ensure_wsl_server(
     let log_path = log_dir.join(format!("wsl-llama-server-{port}.log"));
     let log_file = std::fs::File::create(&log_path)?;
     let stderr_file = log_file.try_clone()?;
+    let args = llama_server_args(&model_wsl, port, params);
     let mut child = Command::new("wsl")
         .args(["-d", distro, "--", "setsid", "nohup", server])
-        .arg("-m")
-        .arg(&model_wsl)
-        .args([
-            "--host",
-            "127.0.0.1",
-            "--port",
-            &port.to_string(),
-            "-c",
-            &ctx.to_string(),
-            "-t",
-            "8",
-        ])
+        .args(&args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(log_file))
         .stderr(std::process::Stdio::from(stderr_file))
@@ -765,6 +857,7 @@ async fn serve(
     backend: String,
     host: Option<String>,
     port: Option<u16>,
+    profile: Option<RuntimeProfile>,
     ctx: Option<u32>,
     slots: Option<usize>,
     api_key: Option<String>,
@@ -774,8 +867,16 @@ async fn serve(
     wsl_server: String,
     wsl_port: u16,
 ) -> Result<()> {
-    let config = load_config_for_serve(config, ctx, slots, host, port, api_key);
+    let config = load_config_for_serve(config, profile, ctx, slots, host, port, api_key);
     config.validate_bind()?;
+    let mut effective = config.model.profile_params(config.server.max_concurrent);
+    // CLI flags win over the preset (config-file fields do not).
+    if let Some(ctx) = ctx {
+        effective.ctx = ctx;
+    }
+    if let Some(slots) = slots {
+        effective.slots = slots.max(1);
+    }
     if start_wsl {
         if backend != "upstream" && backend != "llama-server" {
             return Err(LlmguiError::Config(
@@ -785,14 +886,8 @@ async fn serve(
         let model_path = model.as_ref().ok_or_else(|| {
             LlmguiError::Config("--start-wsl requires --model <gguf>".to_string())
         })?;
-        let url = ensure_wsl_server(
-            model_path,
-            &wsl_distro,
-            &wsl_server,
-            wsl_port,
-            config.model.ctx,
-        )
-        .await?;
+        let url =
+            ensure_wsl_server(model_path, &wsl_distro, &wsl_server, wsl_port, &effective).await?;
         // SAFETY: called during single-threaded CLI startup, before serving.
         unsafe { std::env::set_var("LLMGUI_UPSTREAM_URL", &url) };
         eprintln!("upstream ready at {url}");
@@ -808,14 +903,7 @@ async fn serve(
             "mock"
         })
         .to_string();
-    let load = LoadConfig {
-        n_ctx: config.model.ctx,
-        n_batch: config.model.n_batch,
-        n_gpu_layers: config.model.gpu_layers,
-        n_threads: config.model.n_threads,
-        kv_type: config.model.kv_type.clone(),
-        slots: config.server.max_concurrent,
-    };
+    let load = LoadConfig::from(effective.clone());
     if let Some(path) = &model {
         backend_impl.load(path, &load)?;
     } else if backend == "upstream" || backend == "llama-server" {
@@ -831,10 +919,16 @@ async fn serve(
     let state = llmgui_server::app_state(backend_impl, config.clone(), model_id.clone());
     if let Some(path) = &model {
         let defaults = llmgui_models::library::LoadDefaults {
-            ctx: config.model.ctx,
-            kv: config.model.kv_type.clone(),
-            gpu_layers: config.model.gpu_layers,
-            slots: config.server.max_concurrent,
+            profile: RuntimeProfile::Custom,
+            ctx: effective.ctx,
+            kv: effective.kv_type.clone(),
+            gpu_layers: effective.gpu_layers,
+            n_batch: effective.n_batch,
+            n_ubatch: Some(effective.n_ubatch),
+            n_threads: effective.n_threads,
+            n_threads_batch: effective.n_threads_batch,
+            flash_attn: effective.flash_attn,
+            slots: effective.slots,
             ttl_secs: config.model.idle_ttl_secs,
         };
         state
@@ -921,27 +1015,54 @@ fn estimate(model: &std::path::Path, ctx: u32, kv: &str, slots: u32) -> Result<(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bench(
+    mut config: AppConfig,
     model: Option<PathBuf>,
     backend: String,
+    profile: Option<RuntimeProfile>,
     concurrency: usize,
     iterations: usize,
+    warmup: usize,
     max_tokens: u32,
+    target_min: Option<f64>,
+    target_max: Option<f64>,
+    prompt: String,
 ) -> Result<()> {
+    let target = match (target_min, target_max) {
+        (Some(min), Some(max)) if min <= max => Some((min, max)),
+        (Some(_), Some(_)) => {
+            return Err(LlmguiError::Config(
+                "--target-min must be <= --target-max".to_string(),
+            ));
+        }
+        (None, None) => None,
+        _ => {
+            return Err(LlmguiError::Config(
+                "--target-min and --target-max must be set together".to_string(),
+            ));
+        }
+    };
+    if let Some(profile) = profile {
+        config.model.profile = profile;
+    }
+    let load = LoadConfig::from(config.model.profile_params(concurrency.max(1)));
     let backend_impl = make_backend(&backend)?;
     if let Some(path) = &model {
-        backend_impl.load(path, &LoadConfig::default())?;
+        backend_impl.load(path, &load)?;
     } else if backend == "upstream" || backend == "llama-server" {
-        backend_impl.load(std::path::Path::new("upstream"), &LoadConfig::default())?;
+        backend_impl.load(std::path::Path::new("upstream"), &load)?;
     }
     let scheduler = Arc::new(Scheduler::new(backend_impl, concurrency));
     let report = llmgui_bench::run(
         scheduler,
         "local",
-        "请用一句话介绍你自己。",
+        prompt,
         max_tokens,
         concurrency,
         iterations,
+        warmup,
+        target,
     )
     .await;
     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1018,5 +1139,57 @@ async fn train(config: &std::path::Path, python: &str) -> Result<()> {
         Err(LlmguiError::Backend(format!(
             "training worker exited: {status}"
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn turbo_server_args_include_performance_flags() {
+        let params = AppConfig {
+            model: llmgui_core::config::ModelConfig {
+                profile: RuntimeProfile::Turbo,
+                ..Default::default()
+            },
+            ..AppConfig::default()
+        }
+        .model
+        .profile_params(1);
+        let args = llama_server_args("/models/coder.gguf", 18080, &params);
+        let joined = args.join(" ");
+        for expected in [
+            "-m /models/coder.gguf",
+            "--host 127.0.0.1",
+            "--port 18080",
+            "-c 8192",
+            "-t 8",
+            "-tb 8",
+            "-ngl 999",
+            "-fa",
+            "-ctk q4_0",
+            "-ctv q4_0",
+            "--no-context-shift",
+            "-b 2048",
+            "-ub 512",
+        ] {
+            assert!(
+                joined.contains(expected),
+                "missing {expected:?} in {joined}"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_server_args_keep_legacy_flags() {
+        let params = AppConfig::default().model.profile_params(1);
+        let args = llama_server_args("/models/model.gguf", 18080, &params);
+        let joined = args.join(" ");
+        assert!(joined.contains("-c 32768"));
+        assert!(!joined.contains("-fa"));
+        assert!(!joined.contains("-ngl"));
+        assert!(!joined.contains("--no-context-shift"));
+        assert!(!joined.contains("-ub"));
     }
 }

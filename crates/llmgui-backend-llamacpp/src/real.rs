@@ -25,6 +25,7 @@ use llama_cpp_2::token::LlamaToken;
 use llmgui_backend_api::{
     GenerateRequest, GenerateStats, LoadConfig, PrefixCacheStats, TokenEvent,
 };
+use llmgui_core::config::FlashAttention;
 use llmgui_core::{LlmguiError, Result};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -63,9 +64,16 @@ impl RealBackend {
         if !model_path.exists() {
             return Err(LlmguiError::NotFound(model_path.display().to_string()));
         }
+        let kv_quantized = !matches!(config.kv_type.to_ascii_lowercase().as_str(), "f16" | "fp16");
+        if kv_quantized && config.flash_attn == FlashAttention::Disabled {
+            return Err(LlmguiError::Config(
+                "quantized KV cache requires flash attention; use profile=turbo or kv_type=f16"
+                    .to_string(),
+            ));
+        }
         let n_gpu_layers = if config.n_gpu_layers < 0 {
-            // CPU-safe default. A CUDA-enabled build can opt into GPU layers
-            // explicitly with `--gpu-layers` in a later phase.
+            // CPU-safe legacy default. `profile=turbo` sets n_gpu_layers=999
+            // explicitly for full offload on CUDA builds.
             0
         } else {
             config.n_gpu_layers as u32
@@ -73,6 +81,17 @@ impl RealBackend {
         let params = LlamaModelParams::default().with_n_gpu_layers(n_gpu_layers);
         let model = LlamaModel::load_from_file(backend(), model_path, &params)
             .map_err(|e| LlmguiError::Model(format!("load {}: {e}", model_path.display())))?;
+        tracing::info!(
+            n_ctx = config.n_ctx,
+            kv = %config.kv_type,
+            n_gpu_layers,
+            n_batch = config.n_batch,
+            n_ubatch = config.n_ubatch,
+            n_threads = ?config.n_threads,
+            n_threads_batch = ?config.n_threads_batch,
+            flash_attn = ?config.flash_attn,
+            "llama.cpp effective load parameters"
+        );
         let leaked: &'static LlamaModel = Box::leak(Box::new(model));
         *self.model.lock().unwrap() = Some(leaked);
         *self.model_path.lock().unwrap() = Some(model_path.to_path_buf());
@@ -94,15 +113,24 @@ impl RealBackend {
             "q8_0" | "q8" => LlamaKvType::Q8_0,
             _ => LlamaKvType::F16,
         };
+        let flash = match config.flash_attn {
+            FlashAttention::Auto => llama_cpp_sys_2::LLAMA_FLASH_ATTN_TYPE_AUTO,
+            FlashAttention::Enabled => llama_cpp_sys_2::LLAMA_FLASH_ATTN_TYPE_ENABLED,
+            FlashAttention::Disabled => llama_cpp_sys_2::LLAMA_FLASH_ATTN_TYPE_DISABLED,
+        };
         let mut params = LlamaContextParams::default()
             .with_n_ctx(NonZeroU32::new(config.n_ctx.max(512)))
             .with_n_batch(config.n_batch.max(32))
-            .with_n_ubatch(config.n_batch.max(32))
+            .with_n_ubatch(config.n_ubatch.max(32))
             .with_n_seq_max(1)
+            .with_flash_attention_policy(flash)
             .with_type_k(kv)
             .with_type_v(kv);
         if let Some(threads) = config.n_threads {
             params = params.with_n_threads(threads);
+        }
+        if let Some(threads) = config.n_threads_batch {
+            params = params.with_n_threads_batch(threads);
         }
         params
     }

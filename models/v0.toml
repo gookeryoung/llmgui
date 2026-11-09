@@ -1,7 +1,7 @@
 schema = 1
 
 # 内置推荐目录（发现页数据源）。只收录许可友好的模型（Apache-2.0 / MIT）；
-# size_bytes 为 2026-11-03 ModelScope 文件列表实测值，文件名为仓库内完整路径。
+# size_bytes 为 2026-11-03 / 2026-11-09 ModelScope 文件列表实测值，文件名为仓库内完整路径。
 [[models]]
 id = "qwen2.5-7b-instruct-q4km"
 repo = "Qwen/Qwen2.5-7B-Instruct-GGUF"
@@ -55,6 +55,16 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 18556685824
 role = "moe"
+
+# 代码专用 MoE 档：单用户 8k ctx + turbo 性能档目标 90–120 tok/s（ADR 0004）。
+[[models]]
+id = "qwen3-coder-30b-a3b-q4km"
+repo = "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
+file = "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+quant = "Q4_K_M"
+license = "Apache-2.0"
+size_bytes = 18556689568
+role = "coder"
 
 [[models]]
 id = "mistral-small-24b-q4km"
