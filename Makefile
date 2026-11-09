@@ -8,11 +8,24 @@ PYTEST ?= $(PYTHON) -m pytest
 # DESKTOP_ARGS is appended verbatim (e.g. "serve --backend upstream --model x.gguf").
 DESKTOP_ENV ?=
 DESKTOP_ARGS ?=
+# Turbo acceptance flow (ADR 0004):
+#   make llama-server-turbo MODEL=/path/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+#   make bench-turbo
+# Override engine/port/targets without editing this file.
+LLAMA_SERVER ?= llama-server
+MODEL ?=
+PORT ?= 18080
+UPSTREAM_URL ?= http://127.0.0.1:$(PORT)
+ITERATIONS ?= 5
+WARMUP ?= 3
+MAX_TOKENS ?= 256
+TARGET_MIN ?= 90
+TARGET_MAX ?= 120
 # `make push` pushes the current branch to every configured remote.
 REMOTES ?= $(shell $(GIT) remote)
 BRANCH ?= $(shell $(GIT) rev-parse --abbrev-ref HEAD)
 
-.PHONY: build test cov check-fast check-docs adr-check gitkeep-check flow push desktop desktop-accept bench-runtime bench-download clean
+.PHONY: build test cov check-fast check-docs adr-check gitkeep-check flow push desktop desktop-accept bench-runtime bench-download bench-turbo llama-server-turbo serve-turbo clean
 
 build:
 	$(CARGO) build --workspace
@@ -67,6 +80,30 @@ desktop-accept:
 
 bench-runtime:
 	$(CARGO) run -p llmgui-cli -- bench --iterations 4 --concurrency 1 --max-tokens 64
+
+# Start llama.cpp with the exact `turbo` flags from ADR 0004.
+# MODEL is required; e.g. MODEL=models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+llama-server-turbo:
+	@if [ -z "$(MODEL)" ]; then \
+	  echo "usage: make llama-server-turbo MODEL=/path/to/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf [PORT=18080] [LLAMA_SERVER=./llama-server]"; \
+	  exit 1; \
+	fi
+	$(LLAMA_SERVER) -m $(MODEL) \
+	  -ngl 999 -fa -ctk q4_0 -ctv q4_0 \
+	  -c 8192 --no-context-shift -b 2048 -ub 512 \
+	  -t 8 -tb 8 --host 127.0.0.1 --port $(PORT)
+
+# Single-stream decode acceptance: median of ITERATIONS, warmup excluded.
+bench-turbo:
+	LLMGUI_UPSTREAM_URL=$(UPSTREAM_URL) $(CARGO) run -p llmgui-cli -- bench \
+	  --backend upstream --profile turbo --concurrency 1 \
+	  --iterations $(ITERATIONS) --warmup $(WARMUP) --max-tokens $(MAX_TOKENS) \
+	  --target-min $(TARGET_MIN) --target-max $(TARGET_MAX)
+
+# Serve the Web GUI/OpenAI API against the already running upstream engine.
+serve-turbo:
+	LLMGUI_UPSTREAM_URL=$(UPSTREAM_URL) $(CARGO) run -p llmgui-cli -- serve \
+	  --backend upstream --profile turbo --port 11435
 
 bench-download:
 	@echo "bench-download requires a running local fixture; see docs/adr/0001-local-llm-runtime-finetune.md §13.4"

@@ -27,6 +27,10 @@
 
 ### Added
 
+- 新增 turbo 验收便捷目标：`make llama-server-turbo MODEL=<gguf>`（按 ADR 0004 参数启动
+  引擎）、`make bench-turbo`（单流 decode 验收，默认 5 次 + 3 次 warmup、目标 90–120）、
+  `make serve-turbo`（把 GUI/OpenAI API 接到该引擎）；端口、上游 URL 与各项阈值均可用
+  make 变量覆盖。
 - ADR 0004 P0：Qwen3-Coder-30B-A3B 单用户吞吐档 (ADR 0004 P0)：
   - 推荐目录新增 `qwen3-coder-30b-a3b-q4km`（`unsloth/...-GGUF`，Q4_K_M，
     18,556,689,568 B），GUI 静态目录同步；

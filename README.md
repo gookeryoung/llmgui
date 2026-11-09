@@ -157,27 +157,25 @@ cargo run -p llmgui-cli --features llama -- serve --model <下载后的 gguf> --
 > profile = "turbo"
 > ```
 >
-> 验收基准（单用户、单流；`--warmup` 不计入，取 5 次中位数）：
->
-> ```powershell
-> cargo run -p llmgui-cli -- bench --backend upstream --profile turbo `
->   --concurrency 1 --iterations 5 --warmup 3 --max-tokens 256 `
->   --target-min 90 --target-max 120
-> ```
->
-> `bench` 不会自行拉起服务：先按上面的 `turbo` 参数把 llama-server 起在
-> `LLMGUI_UPSTREAM_URL`（默认 `http://127.0.0.1:18080`）——
+> 验收基准（单用户、单流；`--warmup` 不计入，取 5 次中位数）。用 Makefile 目标最省事：
 >
 > ```bash
-> ./llama-server \
->   -m Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
->   -ngl 999 -fa -ctk q4_0 -ctv q4_0 \
->   -c 8192 --no-context-shift -b 2048 -ub 512 \
->   -t 8 -tb 8 --host 127.0.0.1 --port 18080
+> # 1) 按 turbo 参数启动 llama-server（MODEL 必填）
+> make llama-server-turbo MODEL=/path/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+> # 2) 单流 decode 验收：median 落在 [90,120] 时 target_pass=true
+> make bench-turbo
+> # 3) 可选：把 Web GUI / OpenAI API（127.0.0.1:11435）接到该引擎
+> make serve-turbo
 > ```
 >
-> 用 TabbyAPI 时把 `LLMGUI_UPSTREAM_KIND` 设为 `tabbyapi`、URL 指向其端口即可；
-> 只验证 bench harness 本身可用 `--backend mock`。连不上时报
+> 变量可覆盖：`PORT=18080`、`UPSTREAM_URL=http://127.0.0.1:5000`（TabbyAPI）、
+> `ITERATIONS` / `WARMUP` / `MAX_TOKENS` / `TARGET_MIN` / `TARGET_MAX`、
+> `LLAMA_SERVER=/path/to/llama-server`。`make llama-server-turbo` 展开的引擎参数为
+> `-ngl 999 -fa -ctk q4_0 -ctv q4_0 -c 8192 --no-context-shift -b 2048 -ub 512 -t 8 -tb 8`，
+> 手写命令时这些 flag 必须一致，否则测到的不是 turbo 档。
+>
+> `bench` 不会自行拉起服务。用 TabbyAPI 时把 `LLMGUI_UPSTREAM_KIND` 设为 `tabbyapi`；
+> 只验证 bench harness 本身可用 `make bench-runtime`（mock）。连不上时报
 > `upstream health failed ... Connection refused` 即表示该端口没有服务。
 >
 > 报告中的 `median_decode_tps` 与 `target_pass` 是验收字段；未在 5090D 上实测前不写成已达成。
