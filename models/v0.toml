@@ -1,7 +1,9 @@
-schema = 1
+schema = 2
+updated_at = "2026-11-09T00:00:00Z"
 
 # 内置推荐目录（发现页数据源）。只收录许可友好的模型（Apache-2.0 / MIT）；
 # size_bytes 为 2026-11-03 / 2026-11-09 ModelScope 文件列表实测值，文件名为仓库内完整路径。
+# tags 使用 llmgui-models::tags 的稳定 ID，可随远程目录更新。
 [[models]]
 id = "qwen2.5-7b-instruct-q4km"
 repo = "Qwen/Qwen2.5-7B-Instruct-GGUF"
@@ -10,6 +12,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 4683073632
 role = "default"
+tags = ["chat"]
 
 [[models]]
 id = "qwen3-8b-q4km"
@@ -19,6 +22,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 5027783488
 role = "balanced"
+tags = ["chat"]
 
 [[models]]
 id = "qwen3-4b-q4km"
@@ -28,6 +32,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 2497280256
 role = "lite"
+tags = ["chat"]
 
 [[models]]
 id = "qwen2.5-coder-7b-q4km"
@@ -37,6 +42,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 4683073536
 role = "coder"
+tags = ["chat", "coding"]
 
 [[models]]
 id = "phi-4-14b-q4k"
@@ -46,6 +52,7 @@ quant = "Q4_K"
 license = "MIT"
 size_bytes = 9053114560
 role = "reasoning"
+tags = ["chat", "reasoning", "math"]
 
 [[models]]
 id = "qwen3-30b-a3b-q4km"
@@ -55,6 +62,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 18556685824
 role = "moe"
+tags = ["chat", "reasoning", "moe"]
 
 # 代码专用 MoE 档：单用户 8k ctx + turbo 性能档目标 90–120 tok/s（ADR 0004）。
 [[models]]
@@ -65,6 +73,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 18556689568
 role = "coder"
+tags = ["chat", "coding", "moe", "tool-use"]
 
 [[models]]
 id = "mistral-small-24b-q4km"
@@ -74,6 +83,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 14333908672
 role = "large"
+tags = ["chat", "tool-use"]
 
 # 5090D 32GB（sm_120）的大模型档位；显存以 GGUF metadata 估算为准。
 [[models]]
@@ -84,6 +94,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 9000000000
 role = "large"
+tags = ["chat", "reasoning"]
 
 [[models]]
 id = "qwen3-32b-q4km"
@@ -93,6 +104,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 20300000000
 role = "large"
+tags = ["chat", "reasoning"]
 
 [[models]]
 id = "qwen2.5-0.5b-instruct-q4km"
@@ -102,6 +114,7 @@ quant = "Q4_K_M"
 license = "Apache-2.0"
 size_bytes = 398000000
 role = "smoke"
+tags = ["chat"]
 
 [[models]]
 id = "qwen2.5-7b-instruct"
@@ -110,3 +123,4 @@ quant = "BF16"
 license = "Apache-2.0"
 size_bytes = 15200000000
 role = "train-base"
+tags = ["train-base"]

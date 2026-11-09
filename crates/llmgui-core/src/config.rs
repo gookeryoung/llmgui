@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub download: DownloadConfig,
     pub model: ModelConfig,
+    pub catalog: CatalogConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +63,33 @@ impl Default for DownloadConfig {
             cache_dir: None,
             timeout_secs: 60,
             proxy: None,
+        }
+    }
+}
+
+/// Remote curated catalog refresh policy (ADR 0005).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CatalogConfig {
+    /// Check the remote catalog automatically; `false` disables network access.
+    pub auto_update: bool,
+    /// Versioned TOML catalog URL; empty disables the remote source.
+    pub url: String,
+    /// Minimum interval between successful checks, in hours (1–168).
+    pub ttl_hours: u64,
+    pub timeout_secs: u64,
+    pub max_bytes: u64,
+}
+
+impl Default for CatalogConfig {
+    fn default() -> Self {
+        Self {
+            auto_update: true,
+            url: "https://raw.githubusercontent.com/gookeryoung/llmgui/main/models/v0.toml"
+                .to_string(),
+            ttl_hours: 24,
+            timeout_secs: 10,
+            max_bytes: 2 * 1024 * 1024,
         }
     }
 }

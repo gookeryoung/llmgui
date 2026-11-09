@@ -49,10 +49,29 @@ enum ModelsCommand {
     },
     /// Verify recorded SHA256 hashes.
     Verify { id: Option<String> },
-    /// Search the curated catalog.
+    /// Search the curated catalog (remote cache aware).
     Search {
         #[arg(default_value = "")]
         query: String,
+        /// Only show entries carrying all of these tag IDs (comma separated).
+        #[arg(long)]
+        tags: Option<String>,
+    },
+    /// Show the curated catalog; optionally force a remote refresh.
+    Catalog {
+        /// Force a remote refresh, bypassing the TTL.
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Show merged capability tags for one model, optionally confirm/hide tags.
+    Tags {
+        id: String,
+        /// Confirm a tag (repeatable).
+        #[arg(long = "confirm")]
+        confirm: Vec<String>,
+        /// Hide a suggested tag (repeatable).
+        #[arg(long = "hide")]
+        hide: Vec<String>,
     },
 }
 
@@ -587,42 +606,156 @@ async fn models_command(config: &AppConfig, command: ModelsCommand, json: bool) 
             }
             Ok(())
         }
-        ModelsCommand::Search { query } => {
-            #[derive(serde::Deserialize, serde::Serialize)]
-            struct Seed {
-                #[serde(default)]
-                models: Vec<SeedModel>,
-            }
-            #[derive(serde::Deserialize, serde::Serialize)]
-            struct SeedModel {
-                id: String,
-                repo: String,
-                #[serde(default)]
-                quant: String,
-                #[serde(default)]
-                license: String,
-                #[serde(default)]
-                size_bytes: u64,
-                #[serde(default)]
-                role: String,
-            }
-            let seed: Seed = toml::from_str(include_str!("../../../models/v0.toml"))
-                .unwrap_or(Seed { models: vec![] });
+        ModelsCommand::Search { query, tags } => {
+            let store =
+                llmgui_server::catalog::CatalogStore::new(&config.catalog, paths::llmgui_home());
+            let snapshot = store.current();
             let needle = query.to_lowercase();
-            for model in seed.models.into_iter().filter(|model| {
-                needle.is_empty()
-                    || format!("{} {} {} {}", model.id, model.repo, model.quant, model.role)
-                        .to_lowercase()
-                        .contains(&needle)
+            let filter: Vec<&str> = tags
+                .as_deref()
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|tag| !tag.is_empty())
+                .collect();
+            for tag in &filter {
+                if !llmgui_models::tags::is_known(tag) {
+                    return Err(LlmguiError::Config(format!("unknown tag: {tag}")));
+                }
+            }
+            for model in snapshot.doc.models.iter().filter(|model| {
+                let entry_tags = llmgui_server::catalog::entry_tags(model);
+                let has_tags = filter
+                    .iter()
+                    .all(|id| entry_tags.iter().any(|tag| tag.id == *id));
+                let haystack = format!(
+                    "{} {} {} {} {}",
+                    model.id,
+                    model.repo,
+                    model.quant,
+                    model.role,
+                    model.tags.join(" ")
+                )
+                .to_lowercase();
+                has_tags && (needle.is_empty() || haystack.contains(&needle))
             }) {
+                let labels = llmgui_server::catalog::entry_tags(model)
+                    .iter()
+                    .map(|tag| tag.label.clone())
+                    .collect::<Vec<_>>()
+                    .join(",");
                 println!(
-                    "{:<32} {:<46} {:<10} {:<12} {}",
+                    "{:<32} {:<46} {:<10} {:<12} {:<24} {}",
                     model.id,
                     model.repo,
                     model.quant,
                     human_bytes(model.size_bytes),
-                    model.license
+                    model.license,
+                    labels
                 );
+            }
+            Ok(())
+        }
+        ModelsCommand::Catalog { refresh } => {
+            let store =
+                llmgui_server::catalog::CatalogStore::new(&config.catalog, paths::llmgui_home());
+            let refreshed = if refresh {
+                Some(store.refresh(true).await)
+            } else {
+                None
+            };
+            let snapshot = store.current();
+            if json {
+                let value = serde_json::json!({
+                    "catalog": snapshot.meta,
+                    "models": snapshot.doc.models,
+                    "tag_taxonomy": llmgui_models::tags::taxonomy(),
+                    "refresh": refreshed,
+                });
+                println!("{}", serde_json::to_string_pretty(&value)?);
+            } else {
+                if let Some(meta) = &refreshed {
+                    if let Some(error) = &meta.error {
+                        println!("refresh failed: {error}");
+                    } else if let Some(reason) = &meta.skipped_reason {
+                        println!("refresh skipped: {reason}");
+                    } else {
+                        println!("refresh ok");
+                    }
+                }
+                println!(
+                    "source={} schema={} stale={} updated_at={}",
+                    snapshot.meta.source,
+                    snapshot.meta.schema,
+                    snapshot.meta.stale,
+                    snapshot.meta.updated_at.as_deref().unwrap_or("-")
+                );
+                for model in &snapshot.doc.models {
+                    let labels = llmgui_server::catalog::entry_tags(model)
+                        .iter()
+                        .map(|tag| tag.label.clone())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    println!(
+                        "{:<32} {:<46} {:<10} {}",
+                        model.id, model.repo, model.quant, labels
+                    );
+                }
+            }
+            Ok(())
+        }
+        ModelsCommand::Tags { id, confirm, hide } => {
+            for tag in confirm.iter().chain(hide.iter()) {
+                if !llmgui_models::tags::is_known(tag) {
+                    return Err(LlmguiError::Config(format!("unknown tag: {tag}")));
+                }
+            }
+            let registry = if confirm.is_empty() && hide.is_empty() {
+                library.registry()?
+            } else {
+                library.set_tags(&id, confirm, hide)?
+            };
+            let entry = registry
+                .get(&id)
+                .cloned()
+                .ok_or_else(|| LlmguiError::NotFound(format!("model {id}")))?;
+            let store =
+                llmgui_server::catalog::CatalogStore::new(&config.catalog, paths::llmgui_home());
+            let snapshot = store.current();
+            let curated = entry.repo.as_ref().and_then(|repo| {
+                llmgui_server::catalog::curated_map(&snapshot.doc)
+                    .get(&repo.to_ascii_lowercase())
+                    .cloned()
+            });
+            let tags = llmgui_server::catalog::merged_model_tags(
+                &entry,
+                curated.as_deref(),
+                None,
+                &registry.prefs(&id),
+            );
+            if json {
+                println!("{}", serde_json::to_string_pretty(&tags)?);
+            } else if tags.is_empty() {
+                println!("{id}: no tags");
+            } else {
+                for tag in tags {
+                    println!(
+                        "{:<14} {:<10} {:<6} {}{}",
+                        tag.id,
+                        tag.label,
+                        format!("{:.2}", tag.confidence),
+                        if tag.suggested {
+                            "suggested"
+                        } else {
+                            "confirmed"
+                        },
+                        if tag.runtime_supported {
+                            ""
+                        } else {
+                            " · runtime unsupported"
+                        }
+                    );
+                }
             }
             Ok(())
         }

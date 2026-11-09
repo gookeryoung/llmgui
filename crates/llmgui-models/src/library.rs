@@ -120,6 +120,9 @@ pub struct ModelPrefs {
     pub favorite: bool,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Suggested tags the user explicitly hid (ADR 0005).
+    #[serde(default)]
+    pub hidden_tags: Vec<String>,
     #[serde(default)]
     pub last_used: Option<u64>,
     #[serde(default)]

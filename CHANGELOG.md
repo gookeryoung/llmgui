@@ -6,6 +6,9 @@
 
 ### Docs
 
+- 新增 ADR 0005《发现目录在线更新与能力建议标签》（Accepted）
+  与需求卡片 0005：远程目录 24h TTL + 本地缓存/内置回退，标签带来源与置信度；
+  明确多模态标签仅作建议、运行暂不支持，不做 Hub 关键词搜索。
 - 新增 ADR 0004《Qwen3-Coder-30B-A3B 单用户吞吐 90–120 tok/s》（Accepted）
   与需求卡片 0004：以 llama.cpp CUDA+FA 为主路径，新增显式 `turbo` 性能档
   （ngl 999 / FA / KV q4_0 / batch 2048 / ubatch 512 / threads 8），TabbyAPI 经
@@ -33,6 +36,22 @@
 
 ### Added
 
+- ADR 0005 发现目录在线更新与建议标签（P0–P3 完成，性能回归待补）(ADR 0005 P0/P1/P2a/P2b/P3)：
+  - `models/v0.toml` 升级 schema 2（`updated_at` + curated `tags`），服务端
+    `CatalogStore` 支持远程目录、`<LLMGUI_HOME>/catalog/cache.toml` 缓存、24h TTL、
+    ETag/304、启动检查与 6h 轮询、指数退避、单飞与跨进程文件锁、原子写；
+    `[catalog] auto_update/url/ttl_hours/timeout_secs/max_bytes` 可配置；
+  - 新增 `llmgui-models::tags` 固定标签表（13 个稳定 ID）与确定性推断
+    （mmproj、GGUF metadata、名称 token），来源优先级
+    `user > curated > metadata > file > name`，多模态/视觉/音频标注 `runtime_supported=false`；
+  - `GET /admin/catalog` 返回 `catalog` 元状态、条目 `tags` 与 `tag_taxonomy`；
+    新增 `POST /admin/catalog/refresh`、`GET /admin/catalog/search?tags=`、
+    `GET /admin/models?tags=`、`PUT /admin/models/{id}/tags`；
+  - `registry.prefs.hidden_tags` 新增（旧 registry 无需迁移），标签不写回 manifest；
+  - GUI 发现页新增目录来源/更新时间/过期/失败状态行、标签筛选（AND，localStorage 持久化）、
+    建议标签与「运行暂不支持」样式、手动刷新；模型库支持确认/隐藏建议标签；
+  - CLI 新增 `models catalog [--refresh]`、`models tags <id> [--confirm/--hide]`，
+    `models search` 改用当前目录并支持 `--tags`。
 - 新增 turbo 验收便捷目标：`make llama-server-turbo MODEL=<gguf>`（按 ADR 0004 参数启动
   引擎）、`make bench-turbo`（单流 decode 验收，默认 5 次 + 3 次 warmup、目标 90–120）、
   `make serve-turbo`（把 GUI/OpenAI API 接到该引擎）；端口、上游 URL 与各项阈值均可用

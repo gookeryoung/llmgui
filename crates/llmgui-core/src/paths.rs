@@ -42,6 +42,18 @@ pub fn registry_path() -> PathBuf {
     llmgui_home().join("registry.json")
 }
 
+pub fn catalog_dir() -> PathBuf {
+    llmgui_home().join("catalog")
+}
+
+pub fn catalog_cache_path() -> PathBuf {
+    catalog_dir().join("cache.toml")
+}
+
+pub fn catalog_state_path() -> PathBuf {
+    catalog_dir().join("state.json")
+}
+
 pub fn ensure_layout() -> Result<()> {
     for dir in [
         llmgui_home(),
@@ -49,6 +61,7 @@ pub fn ensure_layout() -> Result<()> {
         models_dir(),
         adapters_dir(),
         jobs_dir(),
+        catalog_dir(),
     ] {
         std::fs::create_dir_all(dir)?;
     }

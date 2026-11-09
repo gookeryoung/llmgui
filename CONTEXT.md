@@ -44,6 +44,11 @@
 | 模型库 | library | 本机已安装/已导入模型的统一索引；安装态与加载态分离 |
 | 注册表 | registry | `<LLMGUI_HOME>/registry.json`，记录模型索引与用户偏好（别名/默认值/收藏）；可由 manifest 重建 |
 | 模型发现 | discover | 按仓库 ID / URL / 关键词检索模型，并按量化、显存、许可以选 |
+| 远程目录 | remote catalog | 版本化目录文件（schema 2），含模型条目与 curated 能力标签；服务端按 TTL 拉取并缓存，失败回退内置清单 |
+| 目录缓存 | catalog cache | `<LLMGUI_HOME>/catalog/cache.toml` 与 `state.json`；保存最后一次校验通过的远程目录与刷新状态，可删除重建 |
+| 建议标签 | suggested tag | 由目录标注、GGUF metadata、mmproj 文件或仓库名推断的能力标签；带来源与置信度，UI 标「建议」 |
+| 标签来源 | tag source | `user / curated / metadata / file / name`；合并优先级为 user > curated > metadata > file > name |
+| 运行支持标记 | runtime_supported | 标签是否被当前运行时真正支持；`multimodal/vision/audio` 当前为 `false`（无 mmproj 与媒体输入） |
 | 模型适配性 | fit | 按 GGUF metadata + ctx + KV 估算的 24GB/32GB 可跑结论 |
 | 即时加载 | JIT | 收到请求时才加载已安装模型；并发首请求合并为一次加载 |
 | 空闲卸载 | TTL | 模型在无请求且空闲超过设定秒数后自动卸载；0 表示不自动卸载 |

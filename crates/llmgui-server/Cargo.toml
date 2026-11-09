@@ -11,10 +11,12 @@ llmgui-scheduler = { path = "../llmgui-scheduler" }
 llmgui-models = { path = "../llmgui-models" }
 llmgui-download = { path = "../llmgui-download" }
 toml.workspace = true
+chrono.workspace = true
 async-stream = "0.3"
 axum.workspace = true
 futures-util.workspace = true
 hex.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

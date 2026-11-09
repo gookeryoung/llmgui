@@ -18,6 +18,7 @@ use llmgui_core::{LlmguiError, Result, paths};
 use llmgui_download::{CasStore, Source};
 use llmgui_models::GgufInfo;
 use llmgui_models::library::{FitPoint, LoadDefaults, Preset, Registry, Resolve, fit_matrix};
+use llmgui_models::tags::{self, Tag};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -33,6 +34,7 @@ pub fn routes() -> Router<AppState> {
         .route("/admin/models/{id}/estimate", get(estimate_model))
         .route("/admin/models/{id}/alias", put(set_alias))
         .route("/admin/models/{id}/defaults", put(set_defaults))
+        .route("/admin/models/{id}/tags", put(set_model_tags))
         .route(
             "/admin/models/{id}/preset",
             get(list_presets).put(save_preset),
@@ -44,6 +46,7 @@ pub fn routes() -> Router<AppState> {
         .route("/admin/models/{id}/descriptor", get(export_descriptor))
         .route("/admin/models/descriptor", post(import_descriptor))
         .route("/admin/catalog", get(catalog))
+        .route("/admin/catalog/refresh", post(refresh_catalog))
         .route("/admin/catalog/search", get(catalog_search))
         .route("/admin/catalog/resolve", get(catalog_resolve))
         .route(
@@ -67,6 +70,24 @@ struct ListQuery {
     kind: Option<String>,
     #[serde(default)]
     sort: Option<String>,
+    #[serde(default)]
+    tags: Option<String>,
+}
+
+fn parse_tag_filter(raw: Option<&str>) -> Result<Vec<String>> {
+    let mut tags: Vec<String> = raw
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect();
+    if let Some(unknown) = tags::unknown_tags(&tags).first() {
+        return Err(LlmguiError::Config(format!("unknown tag: {unknown}")));
+    }
+    tags.sort();
+    tags.dedup();
+    Ok(tags)
 }
 
 async fn list_models(State(state): State<AppState>, Query(query): Query<ListQuery>) -> Response {
@@ -74,12 +95,31 @@ async fn list_models(State(state): State<AppState>, Query(query): Query<ListQuer
         Ok(registry) => registry,
         Err(error) => return ApiError(error).into_response(),
     };
+    let snapshot = state.catalog.current();
+    let curated = crate::catalog::curated_map(&snapshot.doc);
+    let tag_filter = match parse_tag_filter(query.tags.as_deref()) {
+        Ok(tags) => tags,
+        Err(error) => return ApiError(error).into_response(),
+    };
     let loaded = state.runtime.loaded().await.map(|model| model.id.clone());
     let needle = query.query.trim().to_lowercase();
-    let mut entries: Vec<&llmgui_models::library::ModelEntry> = registry
+    let mut entries: Vec<(&llmgui_models::library::ModelEntry, Vec<Tag>)> = registry
         .models
         .iter()
-        .filter(|entry| {
+        .map(|entry| {
+            let curated_tags = entry
+                .repo
+                .as_ref()
+                .and_then(|repo| curated.get(&repo.to_ascii_lowercase()));
+            let merged = crate::catalog::merged_model_tags(
+                entry,
+                curated_tags.map(Vec::as_slice),
+                None,
+                &registry.prefs(&entry.id),
+            );
+            (entry, merged)
+        })
+        .filter(|(entry, _)| {
             if needle.is_empty() {
                 return true;
             }
@@ -94,30 +134,35 @@ async fn list_models(State(state): State<AppState>, Query(query): Query<ListQuer
             .to_lowercase();
             haystack.contains(&needle)
         })
-        .filter(|entry| match query.fit.as_deref() {
+        .filter(|(entry, _)| match query.fit.as_deref() {
             Some("32gb") => entry.fit_32gb,
             Some("24gb") => entry.fit_24gb,
             Some("tight") => entry.fit_32gb && !entry.fit_24gb,
             _ => true,
         })
-        .filter(|entry| match query.kind.as_deref() {
+        .filter(|(entry, _)| match query.kind.as_deref() {
             Some(kind) => format!("{:?}", entry.kind).eq_ignore_ascii_case(kind),
             None => true,
         })
+        .filter(|(_, merged)| {
+            tag_filter
+                .iter()
+                .all(|id| merged.iter().any(|tag| &tag.id == id))
+        })
         .collect();
     match query.sort.as_deref() {
-        Some("size") => entries.sort_by_key(|entry| std::cmp::Reverse(entry.size_bytes)),
-        Some("name") => entries.sort_by(|a, b| a.id.cmp(&b.id)),
-        Some("recent") => entries.sort_by(|a, b| {
+        Some("size") => entries.sort_by_key(|(entry, _)| std::cmp::Reverse(entry.size_bytes)),
+        Some("name") => entries.sort_by(|(a, _), (b, _)| a.id.cmp(&b.id)),
+        Some("recent") => entries.sort_by(|(a, _), (b, _)| {
             let a = registry.prefs(&a.id).last_used.unwrap_or(a.installed_at);
             let b = registry.prefs(&b.id).last_used.unwrap_or(b.installed_at);
             b.cmp(&a)
         }),
-        _ => entries.sort_by(|a, b| a.id.cmp(&b.id)),
+        _ => entries.sort_by(|(a, _), (b, _)| a.id.cmp(&b.id)),
     }
     let data: Vec<Value> = entries
         .iter()
-        .map(|entry| entry_value(&registry, entry, loaded.as_deref()))
+        .map(|(entry, merged)| entry_value(&registry, entry, loaded.as_deref(), merged.clone()))
         .collect();
     Json(json!({
         "ok": true,
@@ -133,13 +178,16 @@ fn entry_value(
     registry: &Registry,
     entry: &llmgui_models::library::ModelEntry,
     loaded: Option<&str>,
+    merged_tags: Vec<Tag>,
 ) -> Value {
     let prefs = registry.prefs(&entry.id);
     let mut value = serde_json::to_value(entry).unwrap_or_else(|_| json!({}));
     if let Some(object) = value.as_object_mut() {
         object.insert("alias".into(), json!(prefs.alias));
         object.insert("favorite".into(), json!(prefs.favorite));
-        object.insert("tags".into(), json!(prefs.tags));
+        object.insert("tags".into(), json!(merged_tags));
+        object.insert("prefs_tags".into(), json!(prefs.tags));
+        object.insert("hidden_tags".into(), json!(prefs.hidden_tags));
         object.insert("last_used".into(), json!(prefs.last_used));
         object.insert("load_defaults".into(), json!(prefs.load_defaults));
         object.insert("loaded".into(), json!(loaded == Some(entry.id.as_str())));
@@ -151,6 +199,14 @@ fn entry_value(
     value
 }
 
+fn read_entry_metadata(entry: &llmgui_models::library::ModelEntry) -> Option<GgufInfo> {
+    let file = entry
+        .files
+        .iter()
+        .find(|file| file.path.to_ascii_lowercase().ends_with(".gguf"))?;
+    GgufInfo::open(&entry.path.join(&file.path)).ok()
+}
+
 async fn get_model(State(state): State<AppState>, AxumPath(id): AxumPath<String>) -> Response {
     let registry = match state.library.registry() {
         Ok(registry) => registry,
@@ -160,7 +216,20 @@ async fn get_model(State(state): State<AppState>, AxumPath(id): AxumPath<String>
         return ApiError(LlmguiError::NotFound(format!("model {id}"))).into_response();
     };
     let loaded = state.runtime.loaded().await.map(|model| model.id.clone());
-    let mut value = entry_value(&registry, &entry, loaded.as_deref());
+    let snapshot = state.catalog.current();
+    let curated = crate::catalog::curated_map(&snapshot.doc);
+    let curated_tags = entry
+        .repo
+        .as_ref()
+        .and_then(|repo| curated.get(&repo.to_ascii_lowercase()));
+    let metadata = read_entry_metadata(&entry);
+    let merged = crate::catalog::merged_model_tags(
+        &entry,
+        curated_tags.map(Vec::as_slice),
+        metadata.as_ref(),
+        &registry.prefs(&entry.id),
+    );
+    let mut value = entry_value(&registry, &entry, loaded.as_deref(), merged);
     let fit = fit_matrix(&entry).unwrap_or_default();
     let presets = state.library.presets().list(&id).unwrap_or_default();
     if let Some(object) = value.as_object_mut() {
@@ -656,14 +725,16 @@ fn seed_catalog() -> SeedCatalog {
 async fn catalog(State(state): State<AppState>) -> Response {
     let registry = state.library.registry().unwrap_or_default();
     let loaded = state.runtime.loaded().await.map(|model| model.id.clone());
-    let installed: BTreeSet<&str> = registry
+    let snapshot = state.catalog.current();
+    let installed: BTreeSet<String> = registry
         .models
         .iter()
-        .map(|entry| entry.repo.as_deref().unwrap_or_default())
+        .filter_map(|entry| entry.repo.as_ref().map(|repo| repo.to_ascii_lowercase()))
         .collect();
-    let data: Vec<Value> = seed_catalog()
+    let data: Vec<Value> = snapshot
+        .doc
         .models
-        .into_iter()
+        .iter()
         .map(|model| {
             json!({
                 "id": model.id,
@@ -674,33 +745,157 @@ async fn catalog(State(state): State<AppState>) -> Response {
                 "size_bytes": model.size_bytes,
                 "size_human": human_bytes(model.size_bytes),
                 "role": model.role,
-                "installed": installed.contains(model.repo.as_str()),
+                "tags": crate::catalog::entry_tags(model),
+                "installed": installed.contains(&model.repo.to_ascii_lowercase()),
                 "downloaded": registry.models.iter().any(|entry| entry.repo.as_deref() == Some(model.repo.as_str())),
             })
         })
         .collect();
-    Json(json!({"ok": true, "data": data, "loaded": loaded})).into_response()
+    Json(json!({
+        "ok": true,
+        "data": data,
+        "loaded": loaded,
+        "catalog": snapshot.meta,
+        "tag_taxonomy": tags::taxonomy(),
+    }))
+    .into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RefreshRequest {
+    #[serde(default)]
+    force: Option<bool>,
+}
+
+async fn refresh_catalog(
+    State(state): State<AppState>,
+    body: Option<Json<RefreshRequest>>,
+) -> Response {
+    let force = body.and_then(|Json(request)| request.force).unwrap_or(true);
+    let meta = state.catalog.refresh(force).await;
+    Json(json!({"ok": true, "catalog": meta})).into_response()
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct SearchQuery {
     #[serde(default)]
     q: String,
+    #[serde(default)]
+    tags: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
-async fn catalog_search(Query(query): Query<SearchQuery>) -> Response {
+async fn catalog_search(
+    State(state): State<AppState>,
+    Query(query): Query<SearchQuery>,
+) -> Response {
+    let tag_filter = match parse_tag_filter(query.tags.as_deref()) {
+        Ok(tags) => tags,
+        Err(error) => return ApiError(error).into_response(),
+    };
+    let snapshot = state.catalog.current();
     let needle = query.q.trim().to_lowercase();
-    let data: Vec<SeedModel> = seed_catalog()
+    let limit = query.limit.unwrap_or(usize::MAX);
+    let data: Vec<Value> = snapshot
+        .doc
         .models
-        .into_iter()
-        .filter(|model| {
-            needle.is_empty()
-                || format!("{} {} {} {}", model.id, model.repo, model.quant, model.role)
-                    .to_lowercase()
-                    .contains(&needle)
+        .iter()
+        .map(|model| (model, crate::catalog::entry_tags(model)))
+        .filter(|(model, entry_tags)| {
+            let haystack = format!(
+                "{} {} {} {} {} {}",
+                model.id,
+                model.repo,
+                model.quant,
+                model.role,
+                model.tags.join(" "),
+                entry_tags
+                    .iter()
+                    .map(|tag| tag.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+            .to_lowercase();
+            (needle.is_empty() || haystack.contains(&needle))
+                && tag_filter
+                    .iter()
+                    .all(|id| entry_tags.iter().any(|tag| &tag.id == id))
+        })
+        .take(limit)
+        .map(|(model, entry_tags)| {
+            json!({
+                "id": model.id,
+                "repo": model.repo,
+                "file": model.file,
+                "quant": model.quant,
+                "license": model.license,
+                "size_bytes": model.size_bytes,
+                "size_human": human_bytes(model.size_bytes),
+                "role": model.role,
+                "tags": entry_tags,
+            })
         })
         .collect();
-    Json(json!({"ok": true, "data": data})).into_response()
+    Json(json!({
+        "ok": true,
+        "data": data,
+        "catalog": snapshot.meta,
+        "tag_taxonomy": tags::taxonomy(),
+    }))
+    .into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ModelTagsRequest {
+    #[serde(default)]
+    confirmed: Vec<String>,
+    #[serde(default)]
+    hidden: Vec<String>,
+}
+
+async fn set_model_tags(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
+    Json(request): Json<ModelTagsRequest>,
+) -> Response {
+    for tag in request.confirmed.iter().chain(request.hidden.iter()) {
+        if !tags::is_known(tag) {
+            return ApiError(LlmguiError::Config(format!("unknown tag: {tag}"))).into_response();
+        }
+    }
+    match state
+        .library
+        .set_tags(&id, request.confirmed, request.hidden)
+    {
+        Ok(registry) => {
+            let snapshot = state.catalog.current();
+            let curated = crate::catalog::curated_map(&snapshot.doc);
+            let entry = registry.get(&id);
+            let curated_tags = entry
+                .and_then(|entry| entry.repo.as_ref())
+                .and_then(|repo| curated.get(&repo.to_ascii_lowercase()));
+            let merged = entry
+                .map(|entry| {
+                    crate::catalog::merged_model_tags(
+                        entry,
+                        curated_tags.map(Vec::as_slice),
+                        None,
+                        &registry.prefs(&entry.id),
+                    )
+                })
+                .unwrap_or_default();
+            Json(json!({
+                "ok": true,
+                "generation": registry.generation,
+                "tags": merged,
+                "prefs_tags": registry.prefs(&id).tags,
+                "hidden_tags": registry.prefs(&id).hidden_tags,
+            }))
+            .into_response()
+        }
+        Err(error) => ApiError(error).into_response(),
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1185,6 +1380,10 @@ mod tests {
         ));
         let backend = Arc::new(MockBackend::new(0));
         let runtime = Arc::new(Runtime::new(backend.clone(), "mock"));
+        let catalog = Arc::new(crate::catalog::CatalogStore::new(
+            &config.catalog,
+            home.path().to_path_buf(),
+        ));
         let state = AppState {
             config,
             scheduler: Arc::new(Scheduler::new(backend, 2)),
@@ -1195,6 +1394,7 @@ mod tests {
             library,
             runtime,
             downloads,
+            catalog,
         };
         (home, router(state, None))
     }
@@ -1331,6 +1531,23 @@ mod tests {
         let (status, body) = call(&app, "GET", "/admin/catalog", None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["data"].as_array().unwrap().len() >= 11);
+        assert_eq!(body["catalog"]["source"], "bundled");
+        assert_eq!(body["catalog"]["schema"], 2);
+        assert!(body["tag_taxonomy"].as_array().unwrap().len() >= 13);
+        let coder = body["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "qwen3-coder-30b-a3b-q4km")
+            .unwrap();
+        let tag_ids: Vec<&str> = coder["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tag| tag["id"].as_str())
+            .collect();
+        assert!(tag_ids.contains(&"coding"));
+        assert!(tag_ids.contains(&"tool-use"));
         let repos: Vec<&str> = body["data"]
             .as_array()
             .unwrap()
@@ -1343,9 +1560,66 @@ mod tests {
         let (status, body) = call(&app, "GET", "/admin/catalog/search?q=qwen3-32b", None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["data"].as_array().unwrap().len(), 1);
+        let (status, body) = call(&app, "GET", "/admin/catalog/search?tags=coding", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["data"].as_array().unwrap().len(), 2);
+        let (status, _) = call(&app, "GET", "/admin/catalog/search?tags=bogus", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
         let (status, body) = call(&app, "GET", "/admin/storage", None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["models_bytes"].as_u64().is_some());
+    }
+
+    #[tokio::test]
+    async fn model_tags_confirm_hide_and_filter() {
+        let (home, app) = temp_app();
+        let id = seed_model(home.path());
+        let _ = call(&app, "POST", "/admin/models/scan", None).await;
+        let (status, body) = call(
+            &app,
+            "PUT",
+            &format!("/admin/models/{id}/tags"),
+            Some(json!({"confirmed": ["coding", "chat"], "hidden": ["moe", "coding"]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["prefs_tags"], json!(["coding", "chat"]));
+        assert_eq!(body["hidden_tags"], json!(["moe"]));
+        let tag_ids: Vec<&str> = body["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tag| tag["id"].as_str())
+            .collect();
+        assert!(tag_ids.contains(&"coding"));
+        let coding = body["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tag| tag["id"] == "coding")
+            .unwrap();
+        assert_eq!(coding["source"], "user");
+        assert_eq!(coding["suggested"], false);
+
+        let (status, body) = call(&app, "GET", "/admin/models?tags=coding", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 1);
+        let (status, body) = call(&app, "GET", "/admin/models?tags=coding,chat", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 1);
+        let (status, body) = call(&app, "GET", "/admin/models?tags=multimodal", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["total"], 0);
+        let (status, _) = call(&app, "GET", "/admin/models?tags=bogus", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, _) = call(
+            &app,
+            "PUT",
+            &format!("/admin/models/{id}/tags"),
+            Some(json!({"confirmed": ["bogus"], "hidden": []})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

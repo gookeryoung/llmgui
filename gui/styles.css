@@ -563,6 +563,62 @@ a {
   color: var(--accent);
 }
 
+.chip--suggested {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+}
+
+.chip--filter {
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip--filter.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.catalog-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 6px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.catalog-tag-filters {
+  margin: 4px 0 12px;
+}
+
+.model-card__tags {
+  margin-top: 8px;
+}
+
+.tag-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chip--hide {
+  padding: 2px 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chip--hide:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 /* ---------- model tabs / library / discover / downloads ---------- */
 
 .model-tabs {

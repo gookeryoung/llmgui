@@ -43,6 +43,14 @@ LLMGUI_UPSTREAM_URL=http://127.0.0.1:18080 cargo run -p llmgui-desktop -- \
 
 ## 模型选择（32GB 显存）
 
+发现页顶部显示目录来源（远程 / 缓存 / 内置）、目录发布时间与拉取时间；过期会提示「已过期，将后台更新」，
+「刷新推荐」立即触发服务端拉取。目录默认 24h 检查一次，可在 `config.toml` 的 `[catalog]` 关闭
+`auto_update` 或替换 `url`；网络失败时自动回退本地缓存/内置清单，不影响页面。
+
+每条目显示能力标签：虚线 chip 为建议标签（悬停可查看来源与置信度），`多模态/视觉/音频` 会标注
+「运行暂不支持」；标签多选按 AND 组合筛选并持久化在 localStorage，只影响展示，不隐藏模型。
+模型库中可对建议标签执行「确认」或「隐藏」，结果写入 registry prefs。
+
 推荐目录仍来自 `models/v0.toml`（`GET /admin/catalog`），收录 12 个 Apache-2.0 / MIT 条目：
 Qwen2.5 7B/0.5B、Qwen3 4B/8B/14B/32B/30B-A3B、Qwen3-Coder-30B-A3B、Qwen2.5-Coder 7B、Phi-4 14B、
 Mistral-Small 24B 与 7B 训练底座。其中针对 RTX 5090 D 32GB 的大模型：`Qwen/Qwen3-14B-GGUF`（Q4_K_M，32k ctx

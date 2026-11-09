@@ -14,6 +14,7 @@ use llmgui_core::{LlmguiError, Result};
 use serde::{Deserialize, Serialize};
 
 pub mod library;
+pub mod tags;
 
 pub const GGUF_MAGIC: &[u8; 4] = b"GGUF";
 

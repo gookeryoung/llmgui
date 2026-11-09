@@ -25,6 +25,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'default',
+      tags: ['chat'],
       purpose: '默认推理模型：日常聊天、问答与常规生成，7B 能力与显存占用较均衡。',
     },
     {
@@ -39,6 +40,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'balanced',
+      tags: ['chat'],
       purpose: '7B 的升级档：同价位质量更好，24GB/32GB 都从容，适合作为日常默认。',
     },
     {
@@ -53,6 +55,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'lite',
+      tags: ['chat'],
       purpose: '轻量通用档：小显存/CPU 也能跑，响应快，适合草稿、分类与批量任务。',
     },
     {
@@ -67,6 +70,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'coder',
+      tags: ['chat', 'coding'],
       purpose: '代码专用档：补全、重构与多语言问答，体积与 7B 通用档相当。',
     },
     {
@@ -81,6 +85,7 @@
       fit: 'ok',
       license: 'MIT',
       role: 'reasoning',
+      tags: ['chat', 'reasoning', 'math'],
       purpose: 'MIT 许可的 14B 推理档：数学与逻辑较强，适合作为非 Qwen 家族的对照模型。',
     },
     {
@@ -95,6 +100,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'moe',
+      tags: ['chat', 'reasoning', 'moe'],
       purpose: 'MoE 档：总参数 30B、激活约 3B，decode 速度快；32GB 显存可跑，24GB 需降 ctx。',
     },
     {
@@ -109,6 +115,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'coder',
+      tags: ['chat', 'coding', 'moe', 'tool-use'],
       purpose: '代码专用 MoE 档：30B 总参数、约 3B 激活；配合 turbo 性能档（8k ctx / KV q4_0 / FA）目标 90–120 tok/s。',
     },
     {
@@ -123,6 +130,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'large',
+      tags: ['chat', 'tool-use'],
       purpose: 'Apache-2.0 的 24B 通用档：多语言与长文能力均衡，32GB 卡可跑；社区 GGUF 由 bartowski 维护。',
     },
     {
@@ -137,6 +145,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'smoke',
+      tags: ['chat'],
       purpose: '冒烟测试与低配机器验证：启动快、占用小，用于打通链路。',
     },
     {
@@ -151,6 +160,7 @@
       fit: 'ok',
       license: 'Apache-2.0',
       role: 'large',
+      tags: ['chat', 'reasoning'],
       purpose:
         '5090D 32G 主力大模型：14B 能力明显强于 7B，32k 上下文 + q8_0 KV 仍有约 18 GB 余量。',
     },
@@ -166,6 +176,7 @@
       fit: 'tight',
       license: 'Apache-2.0',
       role: 'large',
+      tags: ['chat', 'reasoning'],
       purpose:
         '32G 单卡上限尝试：Q4_K_M + q8_0 KV @32k 约 25 GB，建议 ctx 降到 16k 并单路并发，避免 OOM。',
     },
@@ -181,6 +192,7 @@
       fit: '',
       license: 'Apache-2.0',
       role: 'train-base',
+      tags: ['train-base'],
       purpose: 'Python 微调训练底座（SFT / QLoRA），不作为 GGUF 推理模型使用。',
     },
   ];
@@ -211,6 +223,38 @@
     'train-base': '训练底座',
   };
 
+  /* Stable capability tag IDs (mirrors llmgui-models::tags). */
+  const TAG_LABELS = {
+    chat: '通用对话',
+    coding: '编程',
+    reasoning: '推理',
+    math: '数学',
+    multimodal: '多模态',
+    vision: '视觉',
+    audio: '音频',
+    embedding: '向量',
+    rerank: '重排',
+    'long-context': '长上下文',
+    moe: 'MoE',
+    'tool-use': '工具调用',
+    'train-base': '训练底座',
+  };
+
+  const TAG_ORDER = Object.keys(TAG_LABELS);
+  const TAG_RUNTIME_UNSUPPORTED = ['multimodal', 'vision', 'audio'];
+  const TAG_SOURCE_LABELS = {
+    user: '用户确认',
+    curated: '目录策展',
+    metadata: '模型元数据',
+    file: '仓库文件',
+    name: '名称推断',
+  };
+  const CATALOG_SOURCE_LABELS = {
+    remote: '远程目录',
+    cache: '本地缓存',
+    bundled: '内置清单',
+  };
+
   const MODEL_FILTERS = [
     { id: 'all', label: '全部' },
     { id: 'fit32', label: '32G 可跑' },
@@ -226,6 +270,7 @@
     apiBase: 'llmgui.apiBase',
     apiKey: 'llmgui.apiKey',
     theme: 'llmgui.theme',
+    catalogTags: 'llmgui.catalogTags',
   };
 
   const TRAIN_DEFAULTS = {
@@ -260,6 +305,8 @@
     libraryError: null,
     selectedModel: null,
     catalog: [],
+    catalogMeta: null,
+    catalogTags: [],
     repoResult: null,
     downloads: [],
     storage: null,
@@ -547,6 +594,34 @@
     return true;
   }
 
+  async function updateModelTags(id, action, tag) {
+    const entry = state.libraryModels.find(function (model) { return model.id === id; });
+    if (!entry) return;
+    const confirmed = (entry.prefs_tags || []).slice();
+    const hidden = (entry.hidden_tags || []).slice();
+    if (action === 'confirm-tag') {
+      if (confirmed.indexOf(tag) === -1) confirmed.push(tag);
+      const index = hidden.indexOf(tag);
+      if (index !== -1) hidden.splice(index, 1);
+    } else {
+      const index = confirmed.indexOf(tag);
+      if (index !== -1) confirmed.splice(index, 1);
+      if (hidden.indexOf(tag) === -1) hidden.push(tag);
+    }
+    try {
+      const response = await fetch(apiUrl('/admin/models/' + encodeURIComponent(id) + '/tags'), {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ confirmed: confirmed, hidden: hidden }),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      toast(action === 'confirm-tag' ? '标签已确认' : '标签已隐藏', 'ok');
+      await refreshLibrary();
+    } catch (error) {
+      toast('更新标签失败：' + describeFetchError(error), 'error');
+    }
+  }
+
   function visibleLibrary() {
     const query = state.modelQuery.trim().toLowerCase();
     const list = state.libraryModels.filter(function (entry) {
@@ -607,6 +682,33 @@
     });
   }
 
+  function buildModelTags(entry) {
+    const row = createEl('div', 'model-card__chips model-card__tags');
+    (entry.tags || []).forEach(function (tag) {
+      if (!tag.suggested) {
+        row.appendChild(catalogTagChip(tag));
+        return;
+      }
+      const group = createEl('span', 'tag-actions');
+      const confirm = createEl('button', 'chip chip--tag chip--suggested', '＋ ' + tag.label);
+      confirm.type = 'button';
+      confirm.dataset.action = 'confirm-tag';
+      confirm.dataset.id = entry.id;
+      confirm.dataset.tag = tag.id;
+      confirm.title = '确认该建议标签（来源：' + (TAG_SOURCE_LABELS[tag.source] || tag.source) + '）';
+      const hide = createEl('button', 'chip chip--hide', '隐藏');
+      hide.type = 'button';
+      hide.dataset.action = 'hide-tag';
+      hide.dataset.id = entry.id;
+      hide.dataset.tag = tag.id;
+      hide.title = '隐藏该建议标签，不再显示';
+      group.appendChild(confirm);
+      group.appendChild(hide);
+      row.appendChild(group);
+    });
+    return row.children.length ? row : null;
+  }
+
   function buildLibraryCard(entry) {
     const card = createEl('article', 'model-card');
     card.dataset.id = entry.id;
@@ -662,7 +764,10 @@
     remove.dataset.id = entry.id;
     actions.appendChild(remove);
 
+    const tagsRow = buildModelTags(entry);
+
     card.appendChild(head);
+    if (tagsRow) card.appendChild(tagsRow);
     card.appendChild(facts);
     card.appendChild(meta);
     card.appendChild(actions);
@@ -1034,6 +1139,17 @@
 
   /* ---------- discover ---------- */
 
+  function tagObject(id, source) {
+    return {
+      id: id,
+      label: TAG_LABELS[id] || id,
+      source: source || 'curated',
+      confidence: source === 'name' ? 0.7 : 1,
+      suggested: source === 'metadata' || source === 'file' || source === 'name',
+      runtime_supported: TAG_RUNTIME_UNSUPPORTED.indexOf(id) === -1,
+    };
+  }
+
   function seedFromStatic() {
     return DEFAULT_MODELS.map(function (model) {
       return {
@@ -1045,15 +1161,91 @@
         size_bytes: model.sizeBytes,
         size_human: model.size,
         role: model.role,
+        tags: (model.tags || []).map(function (id) {
+          return tagObject(id, 'curated');
+        }),
         downloaded: false,
       };
     });
   }
 
+  function matchesCatalogTags(item) {
+    return state.catalogTags.every(function (id) {
+      return (item.tags || []).some(function (tag) {
+        return tag.id === id;
+      });
+    });
+  }
+
+  function renderCatalogStatus(meta) {
+    if (!dom.catalogStatus) return;
+    dom.catalogStatus.textContent = '';
+    const source = meta && meta.source
+      ? CATALOG_SOURCE_LABELS[meta.source] || meta.source
+      : '状态未知（内置镜像）';
+    const parts = ['目录：' + source];
+    if (meta) {
+      if (meta.updated_at) parts.push('发布 ' + String(meta.updated_at).slice(0, 10));
+      if (meta.fetched_at) {
+        parts.push('获取 ' + String(meta.fetched_at).replace('T', ' ').slice(0, 16));
+      }
+      if (meta.refreshing) parts.push('刷新中…');
+      else if (meta.stale) parts.push('已过期，将后台更新');
+      if (meta.skipped_reason === 'disabled') parts.push('自动更新已关闭');
+    }
+    dom.catalogStatus.appendChild(createEl('span', 'catalog-status__text', parts.join(' · ')));
+    if (meta && meta.error) {
+      dom.catalogStatus.appendChild(
+        createEl('span', 'chip chip--warn', '刷新失败：' + meta.error)
+      );
+    }
+  }
+
+  function renderCatalogTagFilters() {
+    if (!dom.catalogTagFilters) return;
+    dom.catalogTagFilters.textContent = '';
+    TAG_ORDER.forEach(function (id) {
+      const active = state.catalogTags.indexOf(id) !== -1;
+      const button = createEl(
+        'button',
+        'chip chip--filter' + (active ? ' is-active' : ''),
+        TAG_LABELS[id]
+      );
+      button.type = 'button';
+      button.dataset.tagFilter = id;
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      dom.catalogTagFilters.appendChild(button);
+    });
+  }
+
+  function catalogTagChip(tag) {
+    const unsupported = tag.runtime_supported === false;
+    const text = unsupported ? tag.label + ' · 运行暂不支持' : tag.label;
+    const chip = createEl('span', 'chip chip--tag', text);
+    if (unsupported) chip.classList.add('chip--warn');
+    if (tag.suggested) {
+      chip.classList.add('chip--suggested');
+      const source = TAG_SOURCE_LABELS[tag.source] || tag.source;
+      const confidence = Math.round((Number(tag.confidence) || 0) * 100);
+      chip.title = '建议标签 · 来源：' + source + ' · 置信度 ' + confidence + '%';
+    } else {
+      chip.classList.add('chip--muted');
+      chip.title = '标签来源：' + (TAG_SOURCE_LABELS[tag.source] || tag.source);
+    }
+    return chip;
+  }
+
   function renderCatalog(items) {
     if (!dom.catalogGrid) return;
     dom.catalogGrid.textContent = '';
-    items.forEach(function (item) {
+    const visible = items.filter(matchesCatalogTags);
+    if (!visible.length) {
+      dom.catalogGrid.appendChild(
+        createEl('p', 'hint', '没有符合当前标签筛选的模型。')
+      );
+      return;
+    }
+    visible.forEach(function (item) {
       const card = createEl('article', 'model-card');
       const head = createEl('div', 'model-card__head');
       const wrap = createEl('div', 'model-card__title-wrap');
@@ -1066,6 +1258,9 @@
           createEl('span', 'chip chip--muted', CATALOG_ROLE_LABELS[item.role] || item.role)
         );
       }
+      (item.tags || []).forEach(function (tag) {
+        chips.appendChild(catalogTagChip(tag));
+      });
       head.appendChild(wrap);
       head.appendChild(chips);
 
@@ -1101,7 +1296,8 @@
     });
   }
 
-  async function refreshCatalog() {
+  async function refreshCatalog(options) {
+    const quiet = options && options.quiet;
     try {
       const response = await fetch(apiUrl('/admin/catalog'), {
         headers: authHeaders(),
@@ -1110,23 +1306,63 @@
       if (!response.ok) throw new Error(await readErrorDetail(response));
       const body = await response.json();
       state.catalog = Array.isArray(body.data) ? body.data : [];
-      renderCatalog(state.catalog);
+      state.catalogMeta = body.catalog || null;
+      renderCatalogStatus(state.catalogMeta);
+      renderCatalogTagFilters();
+      const searchActive = dom.catalogSearch && dom.catalogSearch.value.trim();
+      if (!(quiet && searchActive)) renderCatalog(state.catalog);
     } catch (error) {
       state.catalog = seedFromStatic();
+      state.catalogMeta = null;
+      renderCatalogStatus(null);
+      renderCatalogTagFilters();
       renderCatalog(state.catalog);
-      toast('推荐目录读取失败，使用内置清单：' + describeFetchError(error), 'warn');
+      if (!quiet) {
+        toast('推荐目录读取失败，使用内置清单：' + describeFetchError(error), 'warn');
+      }
+    }
+  }
+
+  async function refreshRemoteCatalog() {
+    if (dom.catalogRefresh) dom.catalogRefresh.disabled = true;
+    try {
+      const headers = Object.assign({ 'content-type': 'application/json' }, authHeaders());
+      const response = await fetch(apiUrl('/admin/catalog/refresh'), {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({ force: true }),
+      });
+      if (!response.ok) throw new Error(await readErrorDetail(response));
+      const body = await response.json();
+      state.catalogMeta = body.catalog || null;
+      renderCatalogStatus(state.catalogMeta);
+      if (state.catalogMeta && state.catalogMeta.error) {
+        toast('目录刷新失败，继续使用本地版本：' + state.catalogMeta.error, 'warn');
+      } else if (state.catalogMeta && state.catalogMeta.skipped_reason) {
+        toast('目录刷新已跳过：' + state.catalogMeta.skipped_reason, 'warn');
+      } else {
+        toast('推荐目录已更新', 'ok');
+      }
+    } catch (error) {
+      toast('刷新目录失败：' + describeFetchError(error), 'error');
+    } finally {
+      if (dom.catalogRefresh) dom.catalogRefresh.disabled = false;
+      void refreshCatalog({ quiet: true });
     }
   }
 
   async function searchCatalog() {
     const query = dom.catalogSearch ? dom.catalogSearch.value.trim() : '';
+    const params = 'q=' + encodeURIComponent(query);
+    const tags = state.catalogTags.length ? '&tags=' + encodeURIComponent(state.catalogTags.join(',')) : '';
     try {
-      const response = await fetch(apiUrl('/admin/catalog/search?q=' + encodeURIComponent(query)), {
+      const response = await fetch(apiUrl('/admin/catalog/search?' + params + tags), {
         headers: authHeaders(),
         cache: 'no-store',
       });
       if (!response.ok) throw new Error(await readErrorDetail(response));
       const body = await response.json();
+      if (body.catalog) state.catalogMeta = body.catalog;
       renderCatalog(Array.isArray(body.data) ? body.data : []);
     } catch (error) {
       const needle = query.toLowerCase();
@@ -1386,6 +1622,10 @@
     if (state.view === 'models' && state.modelTab === 'downloads') {
       state.modelTimer = window.setInterval(function () {
         if (!document.hidden) void refreshDownloads();
+      }, 2000);
+    } else if (state.view === 'models' && state.modelTab === 'discover') {
+      state.modelTimer = window.setInterval(function () {
+        if (!document.hidden) void refreshCatalog({ quiet: true });
       }, 2000);
     }
   }
@@ -1894,6 +2134,10 @@
     state.apiBase = readStorage(STORAGE_KEYS.apiBase) || '';
     state.apiKey = readStorage(STORAGE_KEYS.apiKey) || '';
     state.theme = readStorage(STORAGE_KEYS.theme) === 'light' ? 'light' : 'dark';
+    state.catalogTags = (readStorage(STORAGE_KEYS.catalogTags) || '')
+      .split(',')
+      .map(function (id) { return id.trim(); })
+      .filter(function (id) { return Boolean(TAG_LABELS[id]); });
 
     dom.settingsApiBase.value = state.apiBase;
     dom.settingsApiKey.value = state.apiKey;
@@ -2096,6 +2340,8 @@
       modelDetail: document.getElementById('model-detail'),
       libraryScan: document.getElementById('library-scan'),
       catalogGrid: document.getElementById('catalog-grid'),
+      catalogStatus: document.getElementById('catalog-status'),
+      catalogTagFilters: document.getElementById('catalog-tag-filters'),
       catalogSearch: document.getElementById('catalog-search'),
       catalogRefresh: document.getElementById('catalog-refresh'),
       repoInput: document.getElementById('repo-input'),
@@ -2191,7 +2437,28 @@
     }
 
     if (dom.libraryScan) dom.libraryScan.addEventListener('click', function () { void scanLibrary(); });
-    if (dom.catalogRefresh) dom.catalogRefresh.addEventListener('click', function () { void refreshCatalog(); });
+    if (dom.catalogRefresh) {
+      dom.catalogRefresh.addEventListener('click', function () {
+        void refreshRemoteCatalog();
+      });
+    }
+    if (dom.catalogTagFilters) {
+      dom.catalogTagFilters.addEventListener('click', function (event) {
+        const target = event.target instanceof Element ? event.target.closest('[data-tag-filter]') : null;
+        if (!target || !target.dataset.tagFilter) return;
+        const id = target.dataset.tagFilter;
+        const index = state.catalogTags.indexOf(id);
+        if (index === -1) state.catalogTags.push(id);
+        else state.catalogTags.splice(index, 1);
+        writeStorage(STORAGE_KEYS.catalogTags, state.catalogTags.join(','));
+        renderCatalogTagFilters();
+        if (dom.catalogSearch && dom.catalogSearch.value.trim()) {
+          void searchCatalog();
+        } else {
+          renderCatalog(state.catalog);
+        }
+      });
+    }
     if (dom.catalogSearch) {
       dom.catalogSearch.addEventListener('input', function () {
         void searchCatalog();
@@ -2223,6 +2490,9 @@
         const action = cardAction.dataset.action;
         const id = cardAction.dataset.id;
         if (action === 'detail') void openModelDetail(id);
+        else if (action === 'confirm-tag' || action === 'hide-tag') {
+          void updateModelTags(id, action, cardAction.dataset.tag);
+        }
         else if (action === 'load' || action === 'unload' || action === 'delete') {
           if (action === 'delete' && !window.confirm('删除模型 ' + id + '？')) return;
           const path =

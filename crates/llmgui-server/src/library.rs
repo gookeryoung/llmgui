@@ -95,6 +95,32 @@ impl LibraryState {
         })
     }
 
+    /// Replace confirmed/hidden tags for a model. Confirmed tags win over
+    /// hidden ones, so a tag can never be both.
+    pub fn set_tags(
+        &self,
+        id: &str,
+        confirmed: Vec<String>,
+        hidden: Vec<String>,
+    ) -> Result<Registry> {
+        self.store.update(|registry| {
+            if registry.get(id).is_none() {
+                return Err(LlmguiError::NotFound(format!("model {id}")));
+            }
+            let confirmed = dedupe(confirmed);
+            let confirmed_set: std::collections::BTreeSet<&str> =
+                confirmed.iter().map(String::as_str).collect();
+            let hidden = dedupe(hidden)
+                .into_iter()
+                .filter(|tag| !confirmed_set.contains(tag.as_str()))
+                .collect();
+            let prefs = registry.prefs.entry(id.to_string()).or_default();
+            prefs.tags = confirmed;
+            prefs.hidden_tags = hidden;
+            Ok(())
+        })
+    }
+
     pub fn remove(&self, id: &str, purge: bool) -> Result<Removal> {
         let mut removal = None;
         self.store.update(|registry| {
@@ -145,6 +171,14 @@ pub struct Removal {
     pub entry: ModelEntry,
     pub files_removed: bool,
     pub purge: bool,
+}
+
+fn dedupe(values: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    values
+        .into_iter()
+        .filter(|value| seen.insert(value.clone()))
+        .collect()
 }
 
 #[cfg(test)]

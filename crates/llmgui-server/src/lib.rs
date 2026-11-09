@@ -28,6 +28,7 @@ use llmgui_core::{LlmguiError, Result, now_unix};
 use llmgui_scheduler::Scheduler;
 
 pub mod admin;
+pub mod catalog;
 pub mod downloads;
 pub mod library;
 pub mod runtime;
@@ -49,6 +50,7 @@ pub struct AppState {
     pub library: Arc<library::LibraryState>,
     pub runtime: Arc<runtime::Runtime>,
     pub downloads: Arc<downloads::DownloadManager>,
+    pub catalog: Arc<catalog::CatalogStore>,
 }
 
 #[derive(Default)]
@@ -98,6 +100,14 @@ pub async fn serve(state: AppState, gui_dir: Option<PathBuf>) -> Result<()> {
         .await
         .map_err(|e| LlmguiError::Config(format!("bind {addr}: {e}")))?;
     tracing::info!(address = %addr, "llmgui server listening");
+    let catalog = state.catalog.clone();
+    tokio::spawn(async move {
+        catalog.maybe_refresh().await;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(6 * 60 * 60)).await;
+            catalog.maybe_refresh().await;
+        }
+    });
     let idle_state = state.clone();
     tokio::spawn(async move {
         loop {
@@ -575,6 +585,10 @@ pub fn app_state(
         config.clone(),
     ));
     let runtime = Arc::new(runtime::Runtime::new(backend.clone(), backend_name.clone()));
+    let catalog = Arc::new(catalog::CatalogStore::new(
+        &config.catalog,
+        paths::llmgui_home(),
+    ));
     AppState {
         config,
         scheduler: Arc::new(Scheduler::new(backend, slots)),
@@ -585,6 +599,7 @@ pub fn app_state(
         library,
         runtime,
         downloads,
+        catalog,
     }
 }
 
