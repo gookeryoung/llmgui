@@ -16,6 +16,9 @@
 
 ### Fixed
 
+- `upstream` 后端健康检查失败时给出可操作提示（启动 llama-server/TabbyAPI 或设置
+  `LLMGUI_UPSTREAM_URL`），不再只抛 `Connection refused`；README 补充 bench 前置条件
+  与 Coder-30B 的 `turbo` llama-server 启动命令。
 - 修复模型库卡片「加载」在未发送 JSON 请求体时被 415 拒绝
   （`Expected request with Content-Type: application/json`）：`load` 接口现在允许空 body
   并使用模型默认参数，GUI 卡片同时显式发送 `{}`。

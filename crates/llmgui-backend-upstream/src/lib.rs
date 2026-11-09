@@ -90,10 +90,12 @@ impl UpstreamBackend {
         match self.http.get(&url).call() {
             Ok(response) if response.status() < 400 => Ok(()),
             Ok(response) => Err(LlmguiError::Backend(format!(
-                "upstream health returned {}",
+                "upstream health returned {}; check that llama-server/TabbyAPI is ready",
                 response.status()
             ))),
-            Err(error) => Err(LlmguiError::Backend(format!("upstream health: {error}"))),
+            Err(error) => Err(LlmguiError::Backend(format!(
+                "upstream health failed ({error}); start llama-server/TabbyAPI first, or set LLMGUI_UPSTREAM_URL"
+            ))),
         }
     }
 }
